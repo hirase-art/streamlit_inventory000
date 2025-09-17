@@ -76,7 +76,7 @@ try:
     # --- データの読み込み ---
     # ★★★【重要】★★★ PCの絶対パスから、スクリプトと同じ場所にあるファイル名（相対パス）に変更
     DATA_PATH1 = "T_9x30.csv"
-    DATA_PATH_MASTER = "Pack_Classification.csv"
+    DATA_PATH_MASTER = "PACK_Classification.csv"
     DATA_PATH3_PATTERN = "CZ04003_*.csv"
     DATA_PATH5 = "T_9x07.csv"
 
@@ -346,3 +346,4 @@ try:
 except Exception as e:
     logging.critical(f"--- アプリケーションの未補足の致命的エラー: {e} ---", exc_info=True)
     st.error(f"予期せぬエラーが発生しました: {e}")
+
