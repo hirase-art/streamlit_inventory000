@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import pandas as pd
 import logging
 import glob # ★ ワイルドカードを扱うためにglobをインポート
@@ -74,7 +74,6 @@ try:
     st.title('📊 在庫・出荷データの可視化アプリ')
 
     # --- データの読み込み ---
-    # ★★★【重要】★★★ PCの絶対パスから、スクリプトと同じ場所にあるファイル名（相対パス）に変更
     DATA_PATH1 = "T_9x30.csv"
     DATA_PATH_MASTER = "PACK_Classification.csv"
     DATA_PATH3_PATTERN = "CZ04003_*.csv"
@@ -85,7 +84,6 @@ try:
     df3 = load_multiple_csv(DATA_PATH3_PATTERN, encoding='cp932')
     df5 = load_single_csv(DATA_PATH5, encoding='utf-8')
 
-    # (以降のスクリプトは変更なし)
     # --- 読み込んだデータの表示 ---
     with st.expander("取り込みデータ①: 月間出荷情報"):
         if df1 is not None: st.dataframe(df1.head())
@@ -145,6 +143,9 @@ try:
 
             df_after_product_id_filter = df_after_shobunrui_filter[df_after_shobunrui_filter['商品ID'].isin(selected_product_ids_shipping)] if selected_product_ids_shipping else df_after_shobunrui_filter
 
+            # ★★★【改修ポイント１】★★★ IDと表示名の対応表（マッピング）を定義
+            gyomu_display_map = {'4': '卸出荷機能', '7': '通販出荷機能'}
+            
             # --- 業務区分IDフィルタ ---
             selected_gyomu = "すべて"
             if '業務区分ID' in df_after_product_id_filter.columns:
@@ -152,10 +153,17 @@ try:
                 gyomu_options.sort()
                 gyomu_options.insert(0, "すべて")
                 selected_gyomu = st.sidebar.radio(
-                    "業務区分IDで絞り込み:", options=gyomu_options, key='gyomu_shipping'
+                    "業務区分IDで絞り込み:", 
+                    options=gyomu_options, 
+                    key='gyomu_shipping',
+                    # ★★★【改修ポイント２】★★★ 表示名だけを変換する format_func を追加
+                    format_func=lambda x: "すべて" if x == "すべて" else gyomu_display_map.get(x, x)
                 )
 
             df_after_gyomu_filter = df_after_product_id_filter[df_after_product_id_filter['業務区分ID'] == selected_gyomu] if selected_gyomu != "すべて" else df_after_product_id_filter
+
+            # ★★★【改修ポイント１】★★★ IDと表示名の対応表（マッピング）を定義
+            soko_display_map = {'7': '大阪', '8': '千葉'}
 
             # --- 倉庫IDフィルタ ---
             selected_soko_shipping = "すべて"
@@ -164,13 +172,21 @@ try:
                 soko_options.sort()
                 soko_options.insert(0, "すべて")
                 selected_soko_shipping = st.sidebar.radio(
-                    "倉庫IDで絞り込み:", options=soko_options, key='soko_shipping'
+                    "倉庫IDで絞り込み:", 
+                    options=soko_options, 
+                    key='soko_shipping',
+                    # ★★★【改修ポイント２】★★★ 表示名だけを変換する format_func を追加
+                    format_func=lambda x: "すべて" if x == "すべて" else soko_display_map.get(x, x)
                 )
 
             # --- 月間出荷数の表示 ---
             st.markdown("---")
             st.subheader("月間出荷数")
-            st.write(f"**大分類:** `{selected_daibunrui_shipping}` | **小分類:** `{selected_shobunrui_shipping if selected_shobunrui_shipping else 'すべて'}` | **商品ID:** `{selected_product_ids_shipping if selected_product_ids_shipping else 'すべて'}` | **業務区分ID:** `{selected_gyomu}` | **倉庫ID:** `{selected_soko_shipping}`")
+            
+            # ★★★【改修ポイント３】★★★ 表示用の変数を準備
+            gyomu_display_str = "すべて" if selected_gyomu == "すべて" else gyomu_display_map.get(selected_gyomu, selected_gyomu)
+            soko_display_str = "すべて" if selected_soko_shipping == "すべて" else soko_display_map.get(selected_soko_shipping, selected_soko_shipping)
+            st.write(f"**大分類:** `{selected_daibunrui_shipping}` | **小分類:** `{selected_shobunrui_shipping if selected_shobunrui_shipping else 'すべて'}` | **商品ID:** `{selected_product_ids_shipping if selected_product_ids_shipping else 'すべて'}` | **業務区分ID:** `{gyomu_display_str}` | **倉庫ID:** `{soko_display_str}`")
             
             df_monthly_filtered = base_df_monthly[
                 (base_df_monthly['大分類'] == selected_daibunrui_shipping if selected_daibunrui_shipping != "すべて" else True) &
@@ -207,7 +223,7 @@ try:
             if df5 is not None:
                 st.markdown("---")
                 st.subheader("週間出荷数")
-                st.write(f"**大分類:** `{selected_daibunrui_shipping}` | **小分類:** `{selected_shobunrui_shipping if selected_shobunrui_shipping else 'すべて'}` | **商品ID:** `{selected_product_ids_shipping if selected_product_ids_shipping else 'すべて'}` | **業務区分ID:** `{selected_gyomu}` | **倉庫ID:** `{selected_soko_shipping}`")
+                st.write(f"**大分類:** `{selected_daibunrui_shipping}` | **小分類:** `{selected_shobunrui_shipping if selected_shobunrui_shipping else 'すべて'}` | **商品ID:** `{selected_product_ids_shipping if selected_product_ids_shipping else 'すべて'}` | **業務区分ID:** `{gyomu_display_str}` | **倉庫ID:** `{soko_display_str}`")
                 
                 df_weekly_filtered = base_df_weekly[
                     (base_df_weekly['大分類'] == selected_daibunrui_shipping if selected_daibunrui_shipping != "すべて" else True) &
