@@ -144,7 +144,7 @@ try:
             df_after_product_id_filter = df_after_shobunrui_filter[df_after_shobunrui_filter['商品ID'].isin(selected_product_ids_shipping)] if selected_product_ids_shipping else df_after_shobunrui_filter
 
             # ★★★【改修ポイント１】★★★ IDと表示名の対応表（マッピング）を定義
-            gyomu_display_map = {'4': '卸出荷機能', '7': '通販出荷機能'}
+            gyomu_display_map = {4: '卸出荷機能', 7: '通販出荷機能'}
             
             # --- 業務区分IDフィルタ ---
             selected_gyomu = "すべて"
@@ -362,4 +362,5 @@ try:
 except Exception as e:
     logging.critical(f"--- アプリケーションの未補足の致命的エラー: {e} ---", exc_info=True)
     st.error(f"予期せぬエラーが発生しました: {e}")
+
 
