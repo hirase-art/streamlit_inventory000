@@ -85,16 +85,15 @@ try:
     df5 = load_single_csv(DATA_PATH5, encoding='utf-8')
 
     # --- 読み込んだデータの表示 ---
-"""
-    with st.expander("取り込みデータ①: 月間出荷情報"):
-        if df1 is not None: st.dataframe(df1.head())
-    with st.expander("取り込みデータ②: 商品マスタ (Pack_Classification)"):
-        if df_master is not None: st.dataframe(df_master.head())
-    with st.expander("取り込みデータ③: 在庫情報"):
-        if df3 is not None: st.dataframe(df3.head())
-    with st.expander("取り積み込みデータ④: 週間出荷情報"):
-        if df5 is not None: st.dataframe(df5.head())
-"""
+    #with st.expander("取り込みデータ①: 月間出荷情報"):
+    #    if df1 is not None: st.dataframe(df1.head())
+    #with st.expander("取り込みデータ②: 商品マスタ (Pack_Classification)"):
+    #    if df_master is not None: st.dataframe(df_master.head())
+    #with st.expander("取り込みデータ③: 在庫情報"):
+    #    if df3 is not None: st.dataframe(df3.head())
+    #with st.expander("取り積み込みデータ④: 週間出荷情報"):
+    #    if df5 is not None: st.dataframe(df5.head())
+
     # --------------------------------------------------------------------------
     # --- 出荷情報のセクション ---
     # --------------------------------------------------------------------------
@@ -363,6 +362,7 @@ try:
 except Exception as e:
     logging.critical(f"--- アプリケーションの未補足の致命的エラー: {e} ---", exc_info=True)
     st.error(f"予期せぬエラーが発生しました: {e}")
+
 
 
 
