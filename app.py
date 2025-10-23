@@ -5,6 +5,7 @@ import glob # ★ ワイルドカードを扱うためにglobをインポート
 import matplotlib.pyplot as plt # ★ グラフ作成のためにpyplotをインポート
 import japanize_matplotlib # 日本語文字化け対策
 import numpy as np # ★ 数値計算のためにnumpyをインポート
+import matplotlib.gridspec as gridspec # ★ グラフエリア分割のためにインポート
 
 # --- ログ設定 ---
 logging.basicConfig(
@@ -70,15 +71,37 @@ def load_multiple_csv(pattern, encoding='utf-8'):
     combined_df = pd.concat(df_list, ignore_index=True)
     return combined_df
 
-# # 棒グラフに数値ラベルを追加する関数 (情報過多になるため今回は使用しない)
-# def add_labels_to_stacked_bar(ax, data_df):
-#     ... (省略) ...
+# ★★★【改修ポイント】★★★ 棒グラフに数値ラベルを追加する関数を再度有効化
+def add_labels_to_stacked_bar(ax, data_df):
+    """積み上げ棒グラフの各セグメントにラベルを追加する"""
+    bottom = pd.Series([0.0] * len(data_df), index=data_df.index) 
+    x_positions = np.arange(len(data_df.index)) 
+
+    for col in data_df.columns:
+        values = data_df[col]
+        # 値が一定以上の場合のみラベルを表示（例: 全体の1%以上） Adjust threshold as needed
+        threshold = values.sum() * 0.01 
+        non_zero_values = values[values > threshold] 
+        
+        valid_indices = non_zero_values.index
+        y_pos = bottom.loc[valid_indices] + non_zero_values / 2
+        
+        x_pos_map = {label: i for i, label in enumerate(data_df.index)}
+        valid_x_positions = [x_pos_map[idx] for idx in valid_indices]
+
+        for i, val in enumerate(non_zero_values):
+            # ラベルが重ならないように微調整が必要な場合がある
+            ax.text(valid_x_positions[i], y_pos.iloc[i], f'{int(val)}', 
+                    ha='center', va='center', fontsize=6, color='white', fontweight='bold') # フォントサイズを小さめに設定
+            
+        bottom += values.fillna(0) 
 
 try:
     st.set_page_config(layout="wide") 
     st.title('📊 在庫・出荷データの可視化アプリ')
 
     # --- データの読み込み ---
+    # (省略)
     DATA_PATH1 = "T_9x30.csv"
     DATA_PATH_MASTER = "PACK_Classification.csv"
     DATA_PATH3_PATTERN = "CZ04003_*.csv"
@@ -89,8 +112,9 @@ try:
     df3 = load_multiple_csv(DATA_PATH3_PATTERN, encoding='cp932')
     df5 = load_single_csv(DATA_PATH5, encoding='utf-8')
 
+
     # --- サイドバーのフィルターを先にすべて定義 ---
-    # (フィルター部分は変更なしのため省略)
+    # (省略)
     base_df_monthly = pd.DataFrame()
     base_df_weekly = pd.DataFrame()
     selected_daibunrui_shipping = "すべて"
@@ -234,17 +258,34 @@ try:
                             other_products = product_totals.iloc[5:].index.tolist()
                             chart_data_top['その他'] = chart_df_monthly_display[other_products].sum(axis=1)
 
-                        fig, ax = plt.subplots(figsize=(6, 4)) # グラフサイズ調整
-                        chart_data_top.plot(kind='bar', stacked=True, ax=ax)
-                        ax.set_xlabel("月コード")
-                        ax.set_ylabel("合計出荷数")
-                        # ★★★【改修ポイント】★★★ X軸ラベルの間引き
-                        tick_interval = max(1, len(chart_data_top) // 10) # 10個程度のラベルになるように調整
-                        ax.set_xticks(np.arange(0, len(chart_data_top), tick_interval))
-                        ax.set_xticklabels(chart_data_top.index[::tick_interval], rotation=45, ha='right', fontsize=8) # フォントサイズ調整
-                        # ★★★【改修ポイント】★★★ 凡例をグラフの外（右側）に配置、フォントサイズ調整
-                        ax.legend(title='商品名', bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
-                        plt.tight_layout(rect=[0, 0, 0.80, 1]) # レイアウト調整して凡例スペース確保
+                        # ★★★【改修ポイント】★★★ GridSpecでレイアウト変更、数値ラベル追加
+                        fig = plt.figure(figsize=(6, 5)) # 少し縦長のFigureに
+                        gs = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 0.1]) # 上2/3, 下1/3 + わずかなスペース
+
+                        ax_chart = fig.add_subplot(gs[0]) # 上のAxes (グラフ用)
+                        ax_legend = fig.add_subplot(gs[1]) # 下のAxes (凡例用)
+                        ax_legend.axis('off') # 凡例用のAxesは枠線などを非表示に
+
+                        chart_data_top.plot(kind='bar', stacked=True, ax=ax_chart, legend=False) # 凡例は後で別に追加
+                        
+                        # 数値ラベル追加
+                        try:
+                           add_labels_to_stacked_bar(ax_chart, chart_data_top)
+                        except Exception as label_e:
+                            logging.warning(f"月間グラフへのラベル追加中にエラー: {label_e}")
+                            st.caption("月間グラフへの数値ラベル表示中にエラーが発生しました。")
+
+                        ax_chart.set_xlabel("") # X軸ラベルは凡例とかぶるので消す
+                        ax_chart.set_ylabel("合計出荷数")
+                        tick_interval = max(1, len(chart_data_top) // 10) 
+                        ax_chart.set_xticks(np.arange(0, len(chart_data_top), tick_interval))
+                        ax_chart.set_xticklabels(chart_data_top.index[::tick_interval], rotation=45, ha='right', fontsize=8) 
+                        
+                        # 凡例を下部に配置
+                        handles, labels = ax_chart.get_legend_handles_labels()
+                        ax_legend.legend(handles, labels, title='商品名', loc='center', ncol=3, fontsize=8) # ncolで列数を調整
+
+                        plt.tight_layout() 
                         st.pyplot(fig)
                         st.caption("上位5商品（+その他）を表示")
                     else:
@@ -293,18 +334,32 @@ try:
                                 other_products_w = product_totals_w.iloc[5:].index.tolist()
                                 chart_data_top_w['その他'] = chart_df_weekly_display[other_products_w].sum(axis=1)
 
-                            fig_w, ax_w = plt.subplots(figsize=(6, 4)) # グラフサイズ調整
-                            chart_data_top_w.plot(kind='bar', stacked=True, ax=ax_w)
-                            ax_w.set_xlabel("週コード")
-                            ax_w.set_ylabel("合計出荷数")
-                            # ★★★【改修ポイント】★★★ X軸ラベルの間引き
-                            tick_interval = max(1, len(chart_data_top_w) // 10) 
-                            ax_w.set_xticks(np.arange(0, len(chart_data_top_w), tick_interval))
-                            ax_w.set_xticklabels(chart_data_top_w.index[::tick_interval], rotation=45, ha='right', fontsize=8) # フォントサイズ調整
-                            # ★★★【改修ポイント】★★★ 凡例をグラフの外（右側）に配置、フォントサイズ調整
-                            ax_w.legend(title='商品名', bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
-                            plt.tight_layout(rect=[0, 0, 0.80, 1]) # レイアウト調整
+                            # ★★★【改修ポイント】★★★ GridSpecでレイアウト変更、数値ラベル追加
+                            fig_w = plt.figure(figsize=(6, 5))
+                            gs_w = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 0.1])
+
+                            ax_chart_w = fig_w.add_subplot(gs_w[0])
+                            ax_legend_w = fig_w.add_subplot(gs_w[1])
+                            ax_legend_w.axis('off')
+
+                            chart_data_top_w.plot(kind='bar', stacked=True, ax=ax_chart_w, legend=False)
                             
+                            try:
+                                add_labels_to_stacked_bar(ax_chart_w, chart_data_top_w)
+                            except Exception as label_e:
+                                logging.warning(f"週間グラフへのラベル追加中にエラー: {label_e}")
+                                st.caption("週間グラフへの数値ラベル表示中にエラーが発生しました。")
+                            
+                            ax_chart_w.set_xlabel("")
+                            ax_chart_w.set_ylabel("合計出荷数")
+                            tick_interval_w = max(1, len(chart_data_top_w) // 10) 
+                            ax_chart_w.set_xticks(np.arange(0, len(chart_data_top_w), tick_interval_w))
+                            ax_chart_w.set_xticklabels(chart_data_top_w.index[::tick_interval_w], rotation=45, ha='right', fontsize=8)
+                            
+                            handles_w, labels_w = ax_chart_w.get_legend_handles_labels()
+                            ax_legend_w.legend(handles_w, labels_w, title='商品名', loc='center', ncol=3, fontsize=8)
+                            
+                            plt.tight_layout()
                             st.pyplot(fig_w)
                             st.caption("上位5商品（+その他）を表示")
                         else:
