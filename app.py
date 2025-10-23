@@ -171,7 +171,7 @@ try:
             
             st.sidebar.markdown("---")
             num_months = st.sidebar.slider("月間表示期間（ヶ月）", min_value=3, max_value=15, value=12, key='num_months')
-            num_weeks = st.sidebar.slider("週間表示期間（週）", min_value=3, max_value=15, value=12, key='num_weeks')
+            num_weeks = st.sidebar.slider("週間表示期間（週）", min_value=3, max_value=60, value=12, key='num_weeks')
 
     # --- 在庫情報フィルタの準備 ---
     base_df_stock = pd.DataFrame()
@@ -415,4 +415,5 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラーが発生しました: {e}")
+
 
