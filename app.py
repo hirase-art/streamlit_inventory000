@@ -70,7 +70,7 @@ def load_multiple_csv(pattern, encoding='utf-8'):
     combined_df = pd.concat(df_list, ignore_index=True)
     return combined_df
 
-# # 棒グラフに数値ラベルを追加する関数 (今回は使用しない)
+# # 棒グラフに数値ラベルを追加する関数 (情報過多になるため今回は使用しない)
 # def add_labels_to_stacked_bar(ax, data_df):
 #     ... (省略) ...
 
@@ -91,7 +91,6 @@ try:
 
     # --- サイドバーのフィルターを先にすべて定義 ---
     # (フィルター部分は変更なしのため省略)
-    # --- 出荷情報フィルタの準備 ---
     base_df_monthly = pd.DataFrame()
     base_df_weekly = pd.DataFrame()
     selected_daibunrui_shipping = "すべて"
@@ -101,8 +100,8 @@ try:
     selected_soko_shipping = "すべて"
     gyomu_display_map = {'4': '卸出荷機能', '7': '通販出荷機能'}
     soko_display_map = {'7': '大阪', '8': '千葉'}
-    num_months = 12 # デフォルト値
-    num_weeks = 12 # デフォルト値
+    num_months = 12 
+    num_weeks = 12 
 
     if df1 is not None and df_master is not None:
         master_cols = ['商品ID', '商品名', '大分類', '中分類', '小分類']
@@ -228,21 +227,24 @@ try:
                     
                     if not chart_df_monthly_display.empty:
                         product_totals = chart_df_monthly_display.sum().sort_values(ascending=False)
-                        top_products = product_totals.head(5).index.tolist() # ★★★ 上位5件に変更
+                        top_products = product_totals.head(5).index.tolist()
                         
                         chart_data_top = chart_df_monthly_display[top_products]
-                        if len(product_totals) > 5: # ★★★ 5件より多い場合
+                        if len(product_totals) > 5:
                             other_products = product_totals.iloc[5:].index.tolist()
                             chart_data_top['その他'] = chart_df_monthly_display[other_products].sum(axis=1)
 
-                        fig, ax = plt.subplots()
-                        chart_data_top.plot(kind='bar', stacked=True, ax=ax) # ★★★ 凡例を表示
+                        fig, ax = plt.subplots(figsize=(6, 4)) # グラフサイズ調整
+                        chart_data_top.plot(kind='bar', stacked=True, ax=ax)
                         ax.set_xlabel("月コード")
                         ax.set_ylabel("合計出荷数")
-                        plt.xticks(rotation=45, ha='right')
-                        # ★★★ 凡例をグラフの外に配置
-                        ax.legend(title='商品名', bbox_to_anchor=(1.05, 1), loc='upper left')
-                        plt.tight_layout(rect=[0, 0, 0.85, 1]) # レイアウト調整して凡例スペース確保
+                        # ★★★【改修ポイント】★★★ X軸ラベルの間引き
+                        tick_interval = max(1, len(chart_data_top) // 10) # 10個程度のラベルになるように調整
+                        ax.set_xticks(np.arange(0, len(chart_data_top), tick_interval))
+                        ax.set_xticklabels(chart_data_top.index[::tick_interval], rotation=45, ha='right', fontsize=8) # フォントサイズ調整
+                        # ★★★【改修ポイント】★★★ 凡例をグラフの外（右側）に配置、フォントサイズ調整
+                        ax.legend(title='商品名', bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+                        plt.tight_layout(rect=[0, 0, 0.80, 1]) # レイアウト調整して凡例スペース確保
                         st.pyplot(fig)
                         st.caption("上位5商品（+その他）を表示")
                     else:
@@ -284,23 +286,24 @@ try:
                         
                         if not chart_df_weekly_display.empty:
                             product_totals_w = chart_df_weekly_display.sum().sort_values(ascending=False)
-                            top_products_w = product_totals_w.head(5).index.tolist() # ★★★ 上位5件
+                            top_products_w = product_totals_w.head(5).index.tolist()
                             
                             chart_data_top_w = chart_df_weekly_display[top_products_w]
-                            if len(product_totals_w) > 5: # ★★★ 5件より多い場合
+                            if len(product_totals_w) > 5:
                                 other_products_w = product_totals_w.iloc[5:].index.tolist()
                                 chart_data_top_w['その他'] = chart_df_weekly_display[other_products_w].sum(axis=1)
 
-                            fig_w, ax_w = plt.subplots()
-                            chart_data_top_w.plot(kind='bar', stacked=True, ax=ax_w) # ★★★ 凡例を表示
+                            fig_w, ax_w = plt.subplots(figsize=(6, 4)) # グラフサイズ調整
+                            chart_data_top_w.plot(kind='bar', stacked=True, ax=ax_w)
                             ax_w.set_xlabel("週コード")
                             ax_w.set_ylabel("合計出荷数")
+                            # ★★★【改修ポイント】★★★ X軸ラベルの間引き
                             tick_interval = max(1, len(chart_data_top_w) // 10) 
                             ax_w.set_xticks(np.arange(0, len(chart_data_top_w), tick_interval))
-                            ax_w.set_xticklabels(chart_data_top_w.index[::tick_interval], rotation=45, ha='right')
-                            # ★★★ 凡例をグラフの外に配置
-                            ax_w.legend(title='商品名', bbox_to_anchor=(1.05, 1), loc='upper left')
-                            plt.tight_layout(rect=[0, 0, 0.85, 1]) # レイアウト調整
+                            ax_w.set_xticklabels(chart_data_top_w.index[::tick_interval], rotation=45, ha='right', fontsize=8) # フォントサイズ調整
+                            # ★★★【改修ポイント】★★★ 凡例をグラフの外（右側）に配置、フォントサイズ調整
+                            ax_w.legend(title='商品名', bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+                            plt.tight_layout(rect=[0, 0, 0.80, 1]) # レイアウト調整
                             
                             st.pyplot(fig_w)
                             st.caption("上位5商品（+その他）を表示")
@@ -342,8 +345,8 @@ try:
                             pie_data = pivot_target_df_stock.groupby('大分類')['実在庫数'].sum()
                             pie_data = pie_data[pie_data > 0] 
                             if not pie_data.empty:
-                                fig, ax = plt.subplots()
-                                ax.pie(pie_data, labels=pie_data.index, autopct='%1.1f%%', startangle=90, textprops={'fontsize': 10}) 
+                                fig, ax = plt.subplots(figsize=(4,4)) # 円グラフのサイズを調整
+                                ax.pie(pie_data, labels=pie_data.index, autopct='%1.1f%%', startangle=90, textprops={'fontsize': 8}) # フォントサイズ調整
                                 ax.axis('equal')
                                 st.pyplot(fig)
                             else:
