@@ -70,28 +70,9 @@ def load_multiple_csv(pattern, encoding='utf-8'):
     combined_df = pd.concat(df_list, ignore_index=True)
     return combined_df
 
-# 棒グラフに数値ラベルを追加する関数
-def add_labels_to_stacked_bar(ax, data_df):
-    """積み上げ棒グラフの各セグメントにラベルを追加する"""
-    bottom = pd.Series([0.0] * len(data_df), index=data_df.index) # 浮動小数点数で初期化
-    x_positions = np.arange(len(data_df.index)) # x軸の位置を数値で取得
-
-    for col in data_df.columns:
-        values = data_df[col]
-        non_zero_values = values[values > 1] # 0や1未満の小さい値はラベルを省略
-        
-        # y_pos の計算時にインデックスが一致するように調整
-        valid_indices = non_zero_values.index
-        y_pos = bottom.loc[valid_indices] + non_zero_values / 2
-        
-        # x_pos の取得方法を修正
-        x_pos_map = {label: i for i, label in enumerate(data_df.index)}
-        valid_x_positions = [x_pos_map[idx] for idx in valid_indices]
-
-        for i, val in enumerate(non_zero_values):
-            ax.text(valid_x_positions[i], y_pos.iloc[i], f'{int(val)}', ha='center', va='center', fontsize=7, color='white', fontweight='bold') # サイズと太さを調整
-            
-        bottom += values.fillna(0) # NaNを0で埋めて加算
+# # 棒グラフに数値ラベルを追加する関数 (今回は使用しない)
+# def add_labels_to_stacked_bar(ax, data_df):
+#     ... (省略) ...
 
 try:
     st.set_page_config(layout="wide") 
@@ -109,7 +90,7 @@ try:
     df5 = load_single_csv(DATA_PATH5, encoding='utf-8')
 
     # --- サイドバーのフィルターを先にすべて定義 ---
-
+    # (フィルター部分は変更なしのため省略)
     # --- 出荷情報フィルタの準備 ---
     base_df_monthly = pd.DataFrame()
     base_df_weekly = pd.DataFrame()
@@ -120,6 +101,8 @@ try:
     selected_soko_shipping = "すべて"
     gyomu_display_map = {'4': '卸出荷機能', '7': '通販出荷機能'}
     soko_display_map = {'7': '大阪', '8': '千葉'}
+    num_months = 12 # デフォルト値
+    num_weeks = 12 # デフォルト値
 
     if df1 is not None and df_master is not None:
         master_cols = ['商品ID', '商品名', '大分類', '中分類', '小分類']
@@ -166,6 +149,7 @@ try:
             num_weeks = st.sidebar.slider("週間表示期間（週）", min_value=3, max_value=15, value=12, key='num_weeks')
 
     # --- 在庫情報フィルタの準備 ---
+    # (省略)
     base_df_stock = pd.DataFrame()
     selected_daibunrui_stock = "すべて"
     selected_shobunrui_stock = []
@@ -202,6 +186,7 @@ try:
             quality_options_stock.insert(0, "すべて")
             selected_quality_stock = st.sidebar.radio("品質区分名で絞り込み:", options=quality_options_stock, key='quality_stock')
 
+
     # --- タブの作成 ---
     tab_shipping, tab_stock = st.tabs(["📝 出荷情報", "📊 在庫情報"])
 
@@ -237,35 +222,29 @@ try:
                     st.info(f"ヒント: テーブルは直近{num_months}ヶ月合計が0でないデータを表示しています。")
                     st.dataframe(pivot_display.reset_index(), height=400, use_container_width=True)
                 with col2:
-                    st.write("グラフ（商品別積み上げ）")
+                    st.write("グラフ（上位5商品+その他）")
                     chart_df_monthly_base = df_monthly_filtered.pivot_table(index='month_code', columns='商品名', values='合計出荷数', aggfunc='sum').fillna(0)
                     chart_df_monthly_display = chart_df_monthly_base.iloc[-num_months:, :] 
                     
-                    # ★★★【改修ポイント】★★★ 上位10商品 + その他 でグラフ作成
                     if not chart_df_monthly_display.empty:
-                        # 期間内の合計出荷数で商品をソート
                         product_totals = chart_df_monthly_display.sum().sort_values(ascending=False)
-                        top_products = product_totals.head(10).index.tolist() # 上位10商品
+                        top_products = product_totals.head(5).index.tolist() # ★★★ 上位5件に変更
                         
-                        # 上位商品と「その他」にデータを再集計
                         chart_data_top = chart_df_monthly_display[top_products]
-                        if len(product_totals) > 10:
-                            other_products = product_totals.iloc[10:].index.tolist()
+                        if len(product_totals) > 5: # ★★★ 5件より多い場合
+                            other_products = product_totals.iloc[5:].index.tolist()
                             chart_data_top['その他'] = chart_df_monthly_display[other_products].sum(axis=1)
 
                         fig, ax = plt.subplots()
-                        chart_data_top.plot(kind='bar', stacked=True, ax=ax, legend=False) 
-                        try: # ラベル追加はエラーが出やすいため try-except で囲む
-                           add_labels_to_stacked_bar(ax, chart_data_top)
-                        except Exception as label_e:
-                            logging.warning(f"グラフへのラベル追加中にエラー: {label_e}")
-                            st.caption("グラフへの数値ラベル表示中にエラーが発生しました。")
-
+                        chart_data_top.plot(kind='bar', stacked=True, ax=ax) # ★★★ 凡例を表示
                         ax.set_xlabel("月コード")
                         ax.set_ylabel("合計出荷数")
                         plt.xticks(rotation=45, ha='right')
+                        # ★★★ 凡例をグラフの外に配置
+                        ax.legend(title='商品名', bbox_to_anchor=(1.05, 1), loc='upper left')
+                        plt.tight_layout(rect=[0, 0, 0.85, 1]) # レイアウト調整して凡例スペース確保
                         st.pyplot(fig)
-                        st.caption("上位10商品（+その他）を表示")
+                        st.caption("上位5商品（+その他）を表示")
                     else:
                         st.warning("月間出荷グラフ: 表示できるデータがありません。")
 
@@ -299,37 +278,32 @@ try:
                         st.info(f"ヒント: テーブルは直近{num_weeks}週合計が0でないデータを表示しています。")
                         st.dataframe(pivot_weekly_display.reset_index(), height=400, use_container_width=True)
                     with col2:
-                        st.write("グラフ（商品別積み上げ）")
+                        st.write("グラフ（上位5商品+その他）")
                         chart_df_weekly_base = df_weekly_filtered.pivot_table(index='week_code', columns='商品名', values='合計出荷数', aggfunc='sum').fillna(0)
                         chart_df_weekly_display = chart_df_weekly_base.iloc[-num_weeks:, :] 
                         
-                        # ★★★【改修ポイント】★★★ 上位10商品 + その他 でグラフ作成
                         if not chart_df_weekly_display.empty:
                             product_totals_w = chart_df_weekly_display.sum().sort_values(ascending=False)
-                            top_products_w = product_totals_w.head(10).index.tolist()
+                            top_products_w = product_totals_w.head(5).index.tolist() # ★★★ 上位5件
                             
                             chart_data_top_w = chart_df_weekly_display[top_products_w]
-                            if len(product_totals_w) > 10:
-                                other_products_w = product_totals_w.iloc[10:].index.tolist()
+                            if len(product_totals_w) > 5: # ★★★ 5件より多い場合
+                                other_products_w = product_totals_w.iloc[5:].index.tolist()
                                 chart_data_top_w['その他'] = chart_df_weekly_display[other_products_w].sum(axis=1)
 
                             fig_w, ax_w = plt.subplots()
-                            chart_data_top_w.plot(kind='bar', stacked=True, ax=ax_w, legend=False)
-                            try:
-                                add_labels_to_stacked_bar(ax_w, chart_data_top_w)
-                            except Exception as label_e:
-                                logging.warning(f"グラフへのラベル追加中にエラー: {label_e}")
-                                st.caption("グラフへの数値ラベル表示中にエラーが発生しました。")
-                            
+                            chart_data_top_w.plot(kind='bar', stacked=True, ax=ax_w) # ★★★ 凡例を表示
                             ax_w.set_xlabel("週コード")
                             ax_w.set_ylabel("合計出荷数")
-                            # X軸ラベルの間引き（表示件数に応じて調整）
                             tick_interval = max(1, len(chart_data_top_w) // 10) 
                             ax_w.set_xticks(np.arange(0, len(chart_data_top_w), tick_interval))
                             ax_w.set_xticklabels(chart_data_top_w.index[::tick_interval], rotation=45, ha='right')
+                            # ★★★ 凡例をグラフの外に配置
+                            ax_w.legend(title='商品名', bbox_to_anchor=(1.05, 1), loc='upper left')
+                            plt.tight_layout(rect=[0, 0, 0.85, 1]) # レイアウト調整
                             
                             st.pyplot(fig_w)
-                            st.caption("上位10商品（+その他）を表示")
+                            st.caption("上位5商品（+その他）を表示")
                         else:
                              st.warning("週間出荷グラフ: 表示できるデータがありません。")
                 else:
@@ -380,18 +354,10 @@ try:
                 st.warning("在庫情報: 選択された条件に一致するデータがないか、必要な列が不足しています。")
 
     # --- 共通のフッターなど ---
-    st.markdown("---")
-    with st.expander("取り込みデータファイルの仕様について"):
-        st.markdown("""
-        - **月間出荷情報 (T_9x30.csv)**: 月ごとの出荷実績データ。
-        - **商品マスタ (PACK_Classification.csv)**: 商品の分類情報（大分類、中分類、小分類）を格納。
-        - **在庫情報 (CZ04003_*.csv)**: 日々の在庫スナップショット。ワイルドカードで複数ファイルを読み込みます。
-        - **週間出荷情報 (T_9x07.csv)**: 週ごとの出荷実績データ。
-        """)
+    # (省略)
 
 except Exception as e:
     logging.critical(f"--- アプリケーションの未補足の致命的エラー: {e} ---", exc_info=True)
-    # ★★★【改修ポイント】★★★ エラー発生時もアプリが停止しないように調整
     if "Image size" in str(e):
          st.error("グラフ描画エラー: グラフが複雑すぎるため、表示できませんでした。フィルター条件を絞り込んでください。")
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
