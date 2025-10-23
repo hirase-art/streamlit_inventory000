@@ -71,7 +71,7 @@ def load_multiple_csv(pattern, encoding='utf-8'):
     combined_df = pd.concat(df_list, ignore_index=True)
     return combined_df
 
-# ★★★【改修ポイント】★★★ 棒グラフに数値ラベルを追加する関数を再度有効化
+# 棒グラフに数値ラベルを追加する関数
 def add_labels_to_stacked_bar(ax, data_df):
     """積み上げ棒グラフの各セグメントにラベルを追加する"""
     bottom = pd.Series([0.0] * len(data_df), index=data_df.index) 
@@ -79,20 +79,27 @@ def add_labels_to_stacked_bar(ax, data_df):
 
     for col in data_df.columns:
         values = data_df[col]
-        # 値が一定以上の場合のみラベルを表示（例: 全体の1%以上） Adjust threshold as needed
-        threshold = values.sum() * 0.01 
+        # 値が一定以上の場合のみラベルを表示（閾値を調整）
+        threshold = values.sum() * 0.02 # 全体の2%未満のセグメントはラベル省略
         non_zero_values = values[values > threshold] 
         
         valid_indices = non_zero_values.index
-        y_pos = bottom.loc[valid_indices] + non_zero_values / 2
+        # y_pos の計算時にインデックスが一致するように調整 (NaNを避ける)
+        y_pos = bottom.loc[valid_indices].fillna(0) + non_zero_values.fillna(0) / 2
         
         x_pos_map = {label: i for i, label in enumerate(data_df.index)}
-        valid_x_positions = [x_pos_map[idx] for idx in valid_indices]
+        valid_x_positions = [x_pos_map.get(idx) for idx in valid_indices if x_pos_map.get(idx) is not None]
 
-        for i, val in enumerate(non_zero_values):
-            # ラベルが重ならないように微調整が必要な場合がある
-            ax.text(valid_x_positions[i], y_pos.iloc[i], f'{int(val)}', 
-                    ha='center', va='center', fontsize=6, color='white', fontweight='bold') # フォントサイズを小さめに設定
+        # valid_x_positions の長さと non_zero_values の長さを合わせる
+        valid_non_zero_values = non_zero_values.iloc[:len(valid_x_positions)]
+        valid_y_pos = y_pos.iloc[:len(valid_x_positions)]
+
+        for i, val in enumerate(valid_non_zero_values):
+             # ラベルが重ならないように微調整が必要な場合がある
+             # Check if position exists before adding text
+             if i < len(valid_x_positions):
+                ax.text(valid_x_positions[i], valid_y_pos.iloc[i], f'{int(val)}', 
+                        ha='center', va='center', fontsize=6, color='white', fontweight='bold') 
             
         bottom += values.fillna(0) 
 
@@ -101,7 +108,6 @@ try:
     st.title('📊 在庫・出荷データの可視化アプリ')
 
     # --- データの読み込み ---
-    # (省略)
     DATA_PATH1 = "T_9x30.csv"
     DATA_PATH_MASTER = "PACK_Classification.csv"
     DATA_PATH3_PATTERN = "CZ04003_*.csv"
@@ -114,7 +120,6 @@ try:
 
 
     # --- サイドバーのフィルターを先にすべて定義 ---
-    # (省略)
     base_df_monthly = pd.DataFrame()
     base_df_weekly = pd.DataFrame()
     selected_daibunrui_shipping = "すべて"
@@ -172,7 +177,6 @@ try:
             num_weeks = st.sidebar.slider("週間表示期間（週）", min_value=3, max_value=15, value=12, key='num_weeks')
 
     # --- 在庫情報フィルタの準備 ---
-    # (省略)
     base_df_stock = pd.DataFrame()
     selected_daibunrui_stock = "すべて"
     selected_shobunrui_stock = []
@@ -245,49 +249,47 @@ try:
                     st.info(f"ヒント: テーブルは直近{num_months}ヶ月合計が0でないデータを表示しています。")
                     st.dataframe(pivot_display.reset_index(), height=400, use_container_width=True)
                 with col2:
-                    st.write("グラフ（上位5商品+その他）")
+                    st.write("グラフ（商品別積み上げ）") # ★★★ タイトル変更
                     chart_df_monthly_base = df_monthly_filtered.pivot_table(index='month_code', columns='商品名', values='合計出荷数', aggfunc='sum').fillna(0)
                     chart_df_monthly_display = chart_df_monthly_base.iloc[-num_months:, :] 
                     
+                    # ★★★【改修ポイント】★★★ 上位表示制限を撤廃
                     if not chart_df_monthly_display.empty:
-                        product_totals = chart_df_monthly_display.sum().sort_values(ascending=False)
-                        top_products = product_totals.head(5).index.tolist()
+                        # 全商品データをそのまま使う
+                        chart_data_top = chart_df_monthly_display 
+
+                        fig = plt.figure(figsize=(6, 5)) 
+                        gs = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 0.1]) 
+
+                        ax_chart = fig.add_subplot(gs[0]) 
+                        ax_legend = fig.add_subplot(gs[1]) 
+                        ax_legend.axis('off') 
+
+                        # ★★★【改修ポイント】★★★ 背景色を設定
+                        ax_chart.set_facecolor('lightgray') 
+
+                        chart_data_top.plot(kind='bar', stacked=True, ax=ax_chart, legend=False) 
                         
-                        chart_data_top = chart_df_monthly_display[top_products]
-                        if len(product_totals) > 5:
-                            other_products = product_totals.iloc[5:].index.tolist()
-                            chart_data_top['その他'] = chart_df_monthly_display[other_products].sum(axis=1)
-
-                        # ★★★【改修ポイント】★★★ GridSpecでレイアウト変更、数値ラベル追加
-                        fig = plt.figure(figsize=(6, 5)) # 少し縦長のFigureに
-                        gs = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 0.1]) # 上2/3, 下1/3 + わずかなスペース
-
-                        ax_chart = fig.add_subplot(gs[0]) # 上のAxes (グラフ用)
-                        ax_legend = fig.add_subplot(gs[1]) # 下のAxes (凡例用)
-                        ax_legend.axis('off') # 凡例用のAxesは枠線などを非表示に
-
-                        chart_data_top.plot(kind='bar', stacked=True, ax=ax_chart, legend=False) # 凡例は後で別に追加
-                        
-                        # 数値ラベル追加
                         try:
                            add_labels_to_stacked_bar(ax_chart, chart_data_top)
                         except Exception as label_e:
                             logging.warning(f"月間グラフへのラベル追加中にエラー: {label_e}")
                             st.caption("月間グラフへの数値ラベル表示中にエラーが発生しました。")
 
-                        ax_chart.set_xlabel("") # X軸ラベルは凡例とかぶるので消す
+                        ax_chart.set_xlabel("") 
                         ax_chart.set_ylabel("合計出荷数")
                         tick_interval = max(1, len(chart_data_top) // 10) 
                         ax_chart.set_xticks(np.arange(0, len(chart_data_top), tick_interval))
                         ax_chart.set_xticklabels(chart_data_top.index[::tick_interval], rotation=45, ha='right', fontsize=8) 
                         
-                        # 凡例を下部に配置
                         handles, labels = ax_chart.get_legend_handles_labels()
-                        ax_legend.legend(handles, labels, title='商品名', loc='center', ncol=3, fontsize=8) # ncolで列数を調整
+                        # 凡例の列数を自動調整（最大5列）
+                        ncol_legend = min(5, len(labels)) 
+                        ax_legend.legend(handles, labels, title='商品名', loc='center', ncol=ncol_legend, fontsize=7) # フォントサイズ調整
 
                         plt.tight_layout() 
                         st.pyplot(fig)
-                        st.caption("上位5商品（+その他）を表示")
+                        # st.caption("上位5商品（+その他）を表示") # ★★★ キャプション削除
                     else:
                         st.warning("月間出荷グラフ: 表示できるデータがありません。")
 
@@ -321,26 +323,23 @@ try:
                         st.info(f"ヒント: テーブルは直近{num_weeks}週合計が0でないデータを表示しています。")
                         st.dataframe(pivot_weekly_display.reset_index(), height=400, use_container_width=True)
                     with col2:
-                        st.write("グラフ（上位5商品+その他）")
+                        st.write("グラフ（商品別積み上げ）") # ★★★ タイトル変更
                         chart_df_weekly_base = df_weekly_filtered.pivot_table(index='week_code', columns='商品名', values='合計出荷数', aggfunc='sum').fillna(0)
                         chart_df_weekly_display = chart_df_weekly_base.iloc[-num_weeks:, :] 
                         
+                        # ★★★【改修ポイント】★★★ 上位表示制限を撤廃
                         if not chart_df_weekly_display.empty:
-                            product_totals_w = chart_df_weekly_display.sum().sort_values(ascending=False)
-                            top_products_w = product_totals_w.head(5).index.tolist()
-                            
-                            chart_data_top_w = chart_df_weekly_display[top_products_w]
-                            if len(product_totals_w) > 5:
-                                other_products_w = product_totals_w.iloc[5:].index.tolist()
-                                chart_data_top_w['その他'] = chart_df_weekly_display[other_products_w].sum(axis=1)
+                            chart_data_top_w = chart_df_weekly_display # 全商品データをそのまま使う
 
-                            # ★★★【改修ポイント】★★★ GridSpecでレイアウト変更、数値ラベル追加
                             fig_w = plt.figure(figsize=(6, 5))
                             gs_w = gridspec.GridSpec(3, 1, height_ratios=[2, 1, 0.1])
 
                             ax_chart_w = fig_w.add_subplot(gs_w[0])
                             ax_legend_w = fig_w.add_subplot(gs_w[1])
                             ax_legend_w.axis('off')
+
+                            # ★★★【改修ポイント】★★★ 背景色を設定
+                            ax_chart_w.set_facecolor('lightgray')
 
                             chart_data_top_w.plot(kind='bar', stacked=True, ax=ax_chart_w, legend=False)
                             
@@ -357,11 +356,13 @@ try:
                             ax_chart_w.set_xticklabels(chart_data_top_w.index[::tick_interval_w], rotation=45, ha='right', fontsize=8)
                             
                             handles_w, labels_w = ax_chart_w.get_legend_handles_labels()
-                            ax_legend_w.legend(handles_w, labels_w, title='商品名', loc='center', ncol=3, fontsize=8)
+                            # 凡例の列数を自動調整（最大5列）
+                            ncol_legend_w = min(5, len(labels_w))
+                            ax_legend_w.legend(handles_w, labels_w, title='商品名', loc='center', ncol=ncol_legend_w, fontsize=7) # フォントサイズ調整
                             
                             plt.tight_layout()
                             st.pyplot(fig_w)
-                            st.caption("上位5商品（+その他）を表示")
+                            # st.caption("上位5商品（+その他）を表示") # ★★★ キャプション削除
                         else:
                              st.warning("週間出荷グラフ: 表示できるデータがありません。")
                 else:
@@ -403,6 +404,8 @@ try:
                                 fig, ax = plt.subplots(figsize=(4,4)) # 円グラフのサイズを調整
                                 ax.pie(pie_data, labels=pie_data.index, autopct='%1.1f%%', startangle=90, textprops={'fontsize': 8}) # フォントサイズ調整
                                 ax.axis('equal')
+                                # ★★★【改修ポイント】★★★ 背景色を設定 (円グラフはFigure全体に)
+                                fig.patch.set_facecolor('lightgray')
                                 st.pyplot(fig)
                             else:
                                 st.warning("グラフ化できる在庫データがありません。")
