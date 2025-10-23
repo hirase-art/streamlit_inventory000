@@ -79,7 +79,8 @@ def add_labels_to_stacked_bar(ax, data_df):
 
     for col in data_df.columns:
         values = data_df[col]
-        threshold = values.sum() * 0.02 
+        # ★★★【改修ポイント】★★★ 閾値を少し上げる (3%)
+        threshold = values.sum() * 0.03 
         non_zero_values = values[values > threshold] 
         
         valid_indices = non_zero_values.index
@@ -93,8 +94,9 @@ def add_labels_to_stacked_bar(ax, data_df):
 
         for i, val in enumerate(valid_non_zero_values):
              if i < len(valid_x_positions):
+                # ★★★【改修ポイント】★★★ フォントサイズ微調整
                 ax.text(valid_x_positions[i], valid_y_pos.iloc[i], f'{int(val)}', 
-                        ha='center', va='center', fontsize=6, color='white', fontweight='bold') 
+                        ha='center', va='center', fontsize=5, color='white', fontweight='bold') 
             
         bottom += values.fillna(0) 
 
@@ -112,6 +114,7 @@ try:
     df_master = load_single_csv(DATA_PATH_MASTER, encoding='utf-8') 
     df3 = load_multiple_csv(DATA_PATH3_PATTERN, encoding='cp932')
     df5 = load_single_csv(DATA_PATH5, encoding='utf-8')
+
 
     # --- サイドバーのフィルターを先にすべて定義 ---
     base_df_monthly = pd.DataFrame()
@@ -250,9 +253,9 @@ try:
                     if not chart_df_monthly_display.empty:
                         chart_data_top = chart_df_monthly_display 
 
-                        # ★★★【改修ポイント】★★★ figsize削除, GridSpec調整
                         fig = plt.figure() 
-                        gs = gridspec.GridSpec(3, 1, height_ratios=[3, 1, 0.1]) # グラフエリアを少し広げる
+                        # ★★★【改修ポイント】★★★ グラフエリアの比率を調整
+                        gs = gridspec.GridSpec(4, 1, height_ratios=[3, 1, 0.1, 0.1]) # 上3/4, 下1/4 + スペース
 
                         ax_chart = fig.add_subplot(gs[0]) 
                         ax_legend = fig.add_subplot(gs[1]) 
@@ -276,11 +279,11 @@ try:
                         
                         handles, labels = ax_chart.get_legend_handles_labels()
                         ncol_legend = min(5, len(labels)) 
-                        ax_legend.legend(handles, labels, title='商品名', loc='center', ncol=ncol_legend, fontsize=7) 
+                        # ★★★【改修ポイント】★★★ 凡例のフォントサイズ微調整
+                        ax_legend.legend(handles, labels, title='商品名', loc='upper center', ncol=ncol_legend, fontsize=6) 
 
-                        # ★★★【改修ポイント】★★★ rectパラメータ削除
                         plt.tight_layout() 
-                        st.pyplot(fig, use_container_width=True) # ★★★ 幅をコンテナに合わせる
+                        st.pyplot(fig, use_container_width=True)
                     else:
                         st.warning("月間出荷グラフ: 表示できるデータがありません。")
 
@@ -321,9 +324,9 @@ try:
                         if not chart_df_weekly_display.empty:
                             chart_data_top_w = chart_df_weekly_display 
 
-                            # ★★★【改修ポイント】★★★ figsize削除, GridSpec調整
                             fig_w = plt.figure()
-                            gs_w = gridspec.GridSpec(3, 1, height_ratios=[3, 1, 0.1]) 
+                            # ★★★【改修ポイント】★★★ グラフエリアの比率を調整
+                            gs_w = gridspec.GridSpec(4, 1, height_ratios=[3, 1, 0.1, 0.1]) 
 
                             ax_chart_w = fig_w.add_subplot(gs_w[0])
                             ax_legend_w = fig_w.add_subplot(gs_w[1])
@@ -347,11 +350,11 @@ try:
                             
                             handles_w, labels_w = ax_chart_w.get_legend_handles_labels()
                             ncol_legend_w = min(5, len(labels_w))
-                            ax_legend_w.legend(handles_w, labels_w, title='商品名', loc='center', ncol=ncol_legend_w, fontsize=7) 
+                            # ★★★【改修ポイント】★★★ 凡例のフォントサイズ微調整
+                            ax_legend_w.legend(handles_w, labels_w, title='商品名', loc='upper center', ncol=ncol_legend_w, fontsize=6) 
                             
-                            # ★★★【改修ポイント】★★★ rectパラメータ削除
                             plt.tight_layout()
-                            st.pyplot(fig_w, use_container_width=True) # ★★★ 幅をコンテナに合わせる
+                            st.pyplot(fig_w, use_container_width=True) 
                         else:
                              st.warning("週間出荷グラフ: 表示できるデータがありません。")
                 else:
@@ -390,12 +393,11 @@ try:
                             pie_data = pivot_target_df_stock.groupby('大分類')['実在庫数'].sum()
                             pie_data = pie_data[pie_data > 0] 
                             if not pie_data.empty:
-                                # ★★★【改修ポイント】★★★ figsize削除
                                 fig, ax = plt.subplots() 
                                 ax.pie(pie_data, labels=pie_data.index, autopct='%1.1f%%', startangle=90, textprops={'fontsize': 8}) 
                                 ax.axis('equal')
                                 fig.patch.set_facecolor('lightgray')
-                                st.pyplot(fig, use_container_width=True) # ★★★ 幅をコンテナに合わせる
+                                st.pyplot(fig, use_container_width=True) 
                             else:
                                 st.warning("グラフ化できる在庫データがありません。")
                 except Exception as e:
