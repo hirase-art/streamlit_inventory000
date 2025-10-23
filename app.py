@@ -69,6 +69,23 @@ def load_multiple_csv(pattern, encoding='utf-8'):
     combined_df = pd.concat(df_list, ignore_index=True)
     return combined_df
 
+# ★★★【改修ポイント】★★★ 棒グラフに数値ラベルを追加する関数
+def add_labels_to_stacked_bar(ax, data_df):
+    """積み上げ棒グラフの各セグメントにラベルを追加する"""
+    bottom = pd.Series([0] * len(data_df), index=data_df.index)
+    for col in data_df.columns:
+        values = data_df[col]
+        # 値が0より大きい場合のみラベルを表示（オプション）
+        non_zero_values = values[values > 0] 
+        y_pos = bottom[non_zero_values.index] + non_zero_values / 2
+        
+        for i, val in enumerate(non_zero_values):
+            x_pos = non_zero_values.index[i]
+            # 数値を整数で表示
+            ax.text(x_pos, y_pos.iloc[i], f'{int(val)}', ha='center', va='center', fontsize=8, color='white') # 文字色やサイズは調整可能
+            
+        bottom += values
+
 try:
     st.set_page_config(layout="wide") # ★ページレイアウトをワイドに変更
     st.title('📊 在庫・出荷データの可視化アプリ')
@@ -137,7 +154,6 @@ try:
                 soko_options.insert(0, "すべて")
                 selected_soko_shipping = st.sidebar.radio("倉庫IDで絞り込み:", options=soko_options, key='soko_shipping', format_func=lambda x: "すべて" if x == "すべて" else soko_display_map.get(x, x))
             
-            # ★★★【改修ポイント】★★★ 表示期間選択スライダーを追加
             st.sidebar.markdown("---")
             num_months = st.sidebar.slider("月間表示期間（ヶ月）", min_value=3, max_value=15, value=12, key='num_months')
             num_weeks = st.sidebar.slider("週間表示期間（週）", min_value=3, max_value=15, value=12, key='num_weeks')
@@ -205,21 +221,31 @@ try:
             if not df_monthly_filtered.empty and all(col in df_monthly_filtered.columns for col in required_cols):
                 pivot = df_monthly_filtered.pivot_table(index=["大分類", "中分類", "小分類", "商品ID", "商品名"], columns="month_code", values="合計出荷数", aggfunc="sum").fillna(0)
                 
-                # ★★★【改修ポイント】★★★ スライダーの値で表示期間を決定
                 recent_cols = pivot.columns[-num_months:] 
                 pivot_filtered = pivot[pivot[recent_cols].sum(axis=1) != 0]
                 pivot_display = pivot_filtered.loc[:, recent_cols]
 
                 col1, col2 = st.columns([2, 1])
                 with col1:
-                    # ★★★【改修ポイント】★★★ ヒント表示を更新
                     st.info(f"ヒント: テーブルは直近{num_months}ヶ月合計が0でないデータを表示しています。")
                     st.dataframe(pivot_display.reset_index(), height=400, use_container_width=True)
                 with col2:
                     st.write("グラフ（商品別積み上げ）")
                     chart_df_monthly = df_monthly_filtered.pivot_table(index='month_code', columns='商品名', values='合計出荷数', aggfunc='sum').fillna(0)
-                    # ★★★【改修ポイント】★★★ スライダーの値で表示期間を決定
-                    st.bar_chart(chart_df_monthly.iloc[-num_months:, :]) 
+                    chart_df_monthly_display = chart_df_monthly.iloc[-num_months:, :] # スライダーで期間指定
+                    
+                    # ★★★【改修ポイント】★★★ Matplotlibで積み上げ棒グラフとラベルを描画
+                    if not chart_df_monthly_display.empty:
+                        fig, ax = plt.subplots()
+                        chart_df_monthly_display.plot(kind='bar', stacked=True, ax=ax, legend=False) # 凡例は省略
+                        add_labels_to_stacked_bar(ax, chart_df_monthly_display)
+                        ax.set_xlabel("月コード")
+                        ax.set_ylabel("合計出荷数")
+                        plt.xticks(rotation=45)
+                        st.pyplot(fig)
+                    else:
+                        st.warning("月間出荷グラフ: 表示できるデータがありません。")
+
             else:
                 st.warning("月間出荷: 選択された条件に一致するデータがないか、必要な列が不足しています。")
 
@@ -241,21 +267,30 @@ try:
                 if not df_weekly_filtered.empty and all(col in df_weekly_filtered.columns for col in required_cols_weekly):
                     pivot_weekly = df_weekly_filtered.pivot_table(index=["大分類", "中分類", "小分類", "商品ID", "商品名"], columns="week_code", values="合計出荷数", aggfunc="sum").fillna(0)
                     
-                    # ★★★【改修ポイント】★★★ スライダーの値で表示期間を決定
                     recent_cols_weekly = pivot_weekly.columns[-num_weeks:]
                     pivot_weekly_filtered = pivot_weekly[pivot_weekly[recent_cols_weekly].sum(axis=1) != 0]
                     pivot_weekly_display = pivot_weekly_filtered.loc[:, recent_cols_weekly]
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
-                        # ★★★【改修ポイント】★★★ ヒント表示を更新
                         st.info(f"ヒント: テーブルは直近{num_weeks}週合計が0でないデータを表示しています。")
                         st.dataframe(pivot_weekly_display.reset_index(), height=400, use_container_width=True)
                     with col2:
                         st.write("グラフ（商品別積み上げ）")
                         chart_df_weekly = df_weekly_filtered.pivot_table(index='week_code', columns='商品名', values='合計出荷数', aggfunc='sum').fillna(0)
-                        # ★★★【改修ポイント】★★★ スライダーの値で表示期間を決定
-                        st.bar_chart(chart_df_weekly.iloc[-num_weeks:, :])
+                        chart_df_weekly_display = chart_df_weekly.iloc[-num_weeks:, :] # スライダーで期間指定
+                        
+                        # ★★★【改修ポイント】★★★ Matplotlibで積み上げ棒グラフとラベルを描画
+                        if not chart_df_weekly_display.empty:
+                            fig_w, ax_w = plt.subplots()
+                            chart_df_weekly_display.plot(kind='bar', stacked=True, ax=ax_w, legend=False)
+                            add_labels_to_stacked_bar(ax_w, chart_df_weekly_display)
+                            ax_w.set_xlabel("週コード")
+                            ax_w.set_ylabel("合計出荷数")
+                            plt.xticks(rotation=45)
+                            st.pyplot(fig_w)
+                        else:
+                             st.warning("週間出荷グラフ: 表示できるデータがありません。")
                 else:
                     st.warning("週間出荷: 選択された条件に一致するデータがないか、必要な列が不足しています。")
     
