@@ -79,7 +79,6 @@ def add_labels_to_stacked_bar(ax, data_df):
 
     for col in data_df.columns:
         values = data_df[col]
-        # ★★★【改修ポイント】★★★ 閾値を少し上げる (3%)
         threshold = values.sum() * 0.03 
         non_zero_values = values[values > threshold] 
         
@@ -94,7 +93,6 @@ def add_labels_to_stacked_bar(ax, data_df):
 
         for i, val in enumerate(valid_non_zero_values):
              if i < len(valid_x_positions):
-                # ★★★【改修ポイント】★★★ フォントサイズ微調整
                 ax.text(valid_x_positions[i], valid_y_pos.iloc[i], f'{int(val)}', 
                         ha='center', va='center', fontsize=5, color='white', fontweight='bold') 
             
@@ -171,7 +169,7 @@ try:
             
             st.sidebar.markdown("---")
             num_months = st.sidebar.slider("月間表示期間（ヶ月）", min_value=3, max_value=15, value=12, key='num_months')
-            num_weeks = st.sidebar.slider("週間表示期間（週）", min_value=3, max_value=60, value=12, key='num_weeks')
+            num_weeks = st.sidebar.slider("週間表示期間（週）", min_value=3, max_value=15, value=12, key='num_weeks')
 
     # --- 在庫情報フィルタの準備 ---
     base_df_stock = pd.DataFrame()
@@ -254,8 +252,8 @@ try:
                         chart_data_top = chart_df_monthly_display 
 
                         fig = plt.figure() 
-                        # ★★★【改修ポイント】★★★ グラフエリアの比率を調整
-                        gs = gridspec.GridSpec(4, 1, height_ratios=[3, 1, 0.1, 0.1]) # 上3/4, 下1/4 + スペース
+                        # ★★★【改修ポイント】★★★ 凡例エリアの比率を少し増やす
+                        gs = gridspec.GridSpec(5, 1, height_ratios=[3, 1, 0.1, 0.1, 0.1]) # 上3/5, 下1/5 + スペース
 
                         ax_chart = fig.add_subplot(gs[0]) 
                         ax_legend = fig.add_subplot(gs[1]) 
@@ -279,10 +277,10 @@ try:
                         
                         handles, labels = ax_chart.get_legend_handles_labels()
                         ncol_legend = min(5, len(labels)) 
-                        # ★★★【改修ポイント】★★★ 凡例のフォントサイズ微調整
                         ax_legend.legend(handles, labels, title='商品名', loc='upper center', ncol=ncol_legend, fontsize=6) 
 
-                        plt.tight_layout() 
+                        # ★★★【改修ポイント】★★★ tight_layoutに下部マージンを追加
+                        plt.tight_layout(rect=[0, 0.05, 1, 1]) # rect=[left, bottom, right, top]
                         st.pyplot(fig, use_container_width=True)
                     else:
                         st.warning("月間出荷グラフ: 表示できるデータがありません。")
@@ -325,8 +323,8 @@ try:
                             chart_data_top_w = chart_df_weekly_display 
 
                             fig_w = plt.figure()
-                            # ★★★【改修ポイント】★★★ グラフエリアの比率を調整
-                            gs_w = gridspec.GridSpec(4, 1, height_ratios=[3, 1, 0.1, 0.1]) 
+                            # ★★★【改修ポイント】★★★ 凡例エリアの比率を少し増やす
+                            gs_w = gridspec.GridSpec(5, 1, height_ratios=[3, 1, 0.1, 0.1, 0.1]) 
 
                             ax_chart_w = fig_w.add_subplot(gs_w[0])
                             ax_legend_w = fig_w.add_subplot(gs_w[1])
@@ -350,10 +348,10 @@ try:
                             
                             handles_w, labels_w = ax_chart_w.get_legend_handles_labels()
                             ncol_legend_w = min(5, len(labels_w))
-                            # ★★★【改修ポイント】★★★ 凡例のフォントサイズ微調整
                             ax_legend_w.legend(handles_w, labels_w, title='商品名', loc='upper center', ncol=ncol_legend_w, fontsize=6) 
                             
-                            plt.tight_layout()
+                            # ★★★【改修ポイント】★★★ tight_layoutに下部マージンを追加
+                            plt.tight_layout(rect=[0, 0.05, 1, 1]) 
                             st.pyplot(fig_w, use_container_width=True) 
                         else:
                              st.warning("週間出荷グラフ: 表示できるデータがありません。")
@@ -415,5 +413,4 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラーが発生しました: {e}")
-
 
