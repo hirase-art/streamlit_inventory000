@@ -147,13 +147,13 @@ try:
                 daibunrui_options = base_df_monthly['大分類'].dropna().unique().tolist()
                 daibunrui_options.sort()
                 daibunrui_options.insert(0, "すべて")
-                selected_daibunrui_shipping = st.sidebar.selectbox("大分類で絞り込み:", options=daibunrui_options, key='daibunrui_shipping')
+                selected_daibunrui_shipping = st.sidebar.multiselect("大分類で絞り込み:", options=daibunrui_options, key='daibunrui_shipping')
             
             df_after_daibunrui_filter = base_df_monthly[base_df_monthly['大分類'] == selected_daibunrui_shipping] if selected_daibunrui_shipping != "すべて" else base_df_monthly
             if '小分類' in df_after_daibunrui_filter.columns:
                 shobunrui_options = df_after_daibunrui_filter['小分類'].dropna().unique().tolist()
                 shobunrui_options.sort()
-                selected_shobunrui_shipping = st.sidebar.multiselect("小分類で絞り込み（複数選択可）:", options=shobunrui_options, key='shobunrui_shipping')
+                selected_shobunrui_shipping = st.sidebar.multiselect("小分類で絞り込み:", options=shobunrui_options, key='shobunrui_shipping')
             
             df_after_shobunrui_filter = df_after_daibunrui_filter[df_after_daibunrui_filter['小分類'].isin(selected_shobunrui_shipping)] if selected_shobunrui_shipping else df_after_daibunrui_filter
             
@@ -210,13 +210,13 @@ try:
             daibunrui_options_stock = base_df_stock['大分類'].dropna().unique().tolist()
             daibunrui_options_stock.sort()
             daibunrui_options_stock.insert(0, "すべて")
-            selected_daibunrui_stock = st.sidebar.selectbox("大分類で絞り込み:", options=daibunrui_options_stock, key='daibunrui_stock')
+            selected_daibunrui_stock = st.sidebar.multiselect("大分類で絞り込み:", options=daibunrui_options_stock, key='daibunrui_stock')
         
         df_after_daibunrui_filter_stock = base_df_stock[base_df_stock['大分類'] == selected_daibunrui_stock] if selected_daibunrui_stock != "すべて" else base_df_stock
         if '小分類' in df_after_daibunrui_filter_stock.columns:
             shobunrui_options_stock = df_after_daibunrui_filter_stock['小分類'].dropna().unique().tolist()
             shobunrui_options_stock.sort()
-            selected_shobunrui_stock = st.sidebar.multiselect("小分類で絞り込み（複数選択可）:", options=shobunrui_options_stock, key='shobunrui_stock')
+            selected_shobunrui_stock = st.sidebar.multiselect("小分類で絞り込み:", options=shobunrui_options_stock, key='shobunrui_stock')
         
         df_after_shobunrui_filter_stock = df_after_daibunrui_filter_stock[df_after_daibunrui_filter_stock['小分類'].isin(selected_shobunrui_stock)] if selected_shobunrui_stock else df_after_daibunrui_filter_stock
 
@@ -419,4 +419,5 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラー: {e}")
+
 
