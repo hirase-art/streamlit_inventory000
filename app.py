@@ -113,13 +113,12 @@ try:
     df3 = load_multiple_csv(DATA_PATH3_PATTERN, encoding='cp932')
     df5 = load_single_csv(DATA_PATH5, encoding='utf-8')
 
-
     # --- サイドバーのフィルターを先にすべて定義 ---
     base_df_monthly = pd.DataFrame()
     base_df_weekly = pd.DataFrame()
-    selected_daibunrui_shipping = "すべて"
+    # ★★★ selected_daibunrui_shipping をリストに変更
+    selected_daibunrui_shipping = [] 
     selected_shobunrui_shipping = []
-    # ★★★ 商品名検索用変数を追加
     product_name_search_shipping = "" 
     selected_product_ids_shipping = []
     selected_gyomu = "すべて"
@@ -133,7 +132,6 @@ try:
         master_cols = ['商品ID', '商品名', '大分類', '中分類', '小分類']
         if all(col in df_master.columns for col in master_cols):
             df_master_shipping = df_master[master_cols].drop_duplicates(subset='商品ID')
-            # マージ前に商品IDの型を確認・統一
             df1['商品ID'] = df1['商品ID'].astype(str)
             df_master_shipping['商品ID'] = df_master_shipping['商品ID'].astype(str)
             base_df_monthly = pd.merge(df1, df_master_shipping, on='商品ID', how='left')
@@ -143,28 +141,28 @@ try:
             
             st.sidebar.header(":blue[出荷情報フィルタ]")
             
+            # ★★★【改修ポイント】★★★ 大分類フィルタをmultiselectに変更
             if '大分類' in base_df_monthly.columns:
                 daibunrui_options = base_df_monthly['大分類'].dropna().unique().tolist()
                 daibunrui_options.sort()
-                daibunrui_options.insert(0, "すべて")
-                selected_daibunrui_shipping = st.sidebar.selectbox("大分類で絞り込み:", options=daibunrui_options, key='daibunrui_shipping')
+                # 「すべて」は削除
+                selected_daibunrui_shipping = st.sidebar.multiselect(
+                    "大分類で絞り込み（複数選択可）:", options=daibunrui_options, key='daibunrui_shipping'
+                )
             
-            df_after_daibunrui_filter = base_df_monthly[base_df_monthly['大分類'] == selected_daibunrui_shipping] if selected_daibunrui_shipping != "すべて" else base_df_monthly
+            # ★★★ 絞り込みロジックを .isin() に変更
+            df_after_daibunrui_filter = base_df_monthly[base_df_monthly['大分類'].isin(selected_daibunrui_shipping)] if selected_daibunrui_shipping else base_df_monthly
+
             if '小分類' in df_after_daibunrui_filter.columns:
                 shobunrui_options = df_after_daibunrui_filter['小分類'].dropna().unique().tolist()
                 shobunrui_options.sort()
                 selected_shobunrui_shipping = st.sidebar.multiselect("小分類で絞り込み（複数選択可）:", options=shobunrui_options, key='shobunrui_shipping')
             
             df_after_shobunrui_filter = df_after_daibunrui_filter[df_after_daibunrui_filter['小分類'].isin(selected_shobunrui_shipping)] if selected_shobunrui_shipping else df_after_daibunrui_filter
-            
-            # ★★★【改修ポイント】★★★ 商品名あいまい検索フィルタを追加
             product_name_search_shipping = st.sidebar.text_input("商品名であいまい検索:", key='product_name_shipping').strip()
             df_after_name_filter = df_after_shobunrui_filter[df_after_shobunrui_filter['商品名'].str.contains(product_name_search_shipping, na=False)] if product_name_search_shipping else df_after_shobunrui_filter
-
-            # --- 商品IDフィルタ ---
             product_ids_input_shipping = st.sidebar.text_input("商品IDで絞り込み (カンマ区切りで複数可):", key='product_id_shipping').strip()
             selected_product_ids_shipping = [pid.strip() for pid in product_ids_input_shipping.split(',')] if product_ids_input_shipping else []
-            # ★★★ 商品名フィルタ後のデータに対してIDフィルタを適用
             df_after_product_id_filter = df_after_name_filter[df_after_name_filter['商品ID'].isin(selected_product_ids_shipping)] if selected_product_ids_shipping else df_after_name_filter
 
             if '業務区分ID' in df_after_product_id_filter.columns:
@@ -186,48 +184,46 @@ try:
 
     # --- 在庫情報フィルタの準備 ---
     base_df_stock = pd.DataFrame()
-    selected_daibunrui_stock = "すべて"
+    # ★★★ selected_daibunrui_stock をリストに変更
+    selected_daibunrui_stock = [] 
     selected_shobunrui_stock = []
-    # ★★★ 商品名検索用変数を追加
     product_name_search_stock = ""
     selected_product_ids_stock = []
     selected_quality_stock = "すべて"
 
     if df3 is not None and df_master is not None:
-        master_cols_stock = ['商品ID', '大分類', '中分類', '小分類', '商品名'] # 商品名もマージ対象に
+        master_cols_stock = ['商品ID', '大分類', '中分類', '小分類', '商品名'] 
         if all(col in df_master.columns for col in master_cols_stock):
-            cols_to_drop = ['大分類', '中分類', '小分類', '商品名'] # 商品名も削除対象に
-            # マージ前に商品IDの型を確認・統一
+            cols_to_drop = ['大分類', '中分類', '小分類', '商品名'] 
             df3['商品ID'] = df3['商品ID'].astype(str)
             df_master_stock = df_master[master_cols_stock].drop_duplicates(subset='商品ID')
             df_master_stock['商品ID'] = df_master_stock['商品ID'].astype(str)
-            
             df3_for_merge = df3.drop(columns=cols_to_drop, errors='ignore')
             base_df_stock = pd.merge(df3_for_merge, df_master_stock, on='商品ID', how='left')
         
         st.sidebar.header(":blue[在庫情報フィルタ]")
+        # ★★★【改修ポイント】★★★ 大分類フィルタをmultiselectに変更
         if '大分類' in base_df_stock.columns:
             daibunrui_options_stock = base_df_stock['大分類'].dropna().unique().tolist()
             daibunrui_options_stock.sort()
-            daibunrui_options_stock.insert(0, "すべて")
-            selected_daibunrui_stock = st.sidebar.selectbox("大分類で絞り込み:", options=daibunrui_options_stock, key='daibunrui_stock')
+            # 「すべて」は削除
+            selected_daibunrui_stock = st.sidebar.multiselect(
+                "大分類で絞り込み（複数選択可）:", options=daibunrui_options_stock, key='daibunrui_stock'
+            )
         
-        df_after_daibunrui_filter_stock = base_df_stock[base_df_stock['大分類'] == selected_daibunrui_stock] if selected_daibunrui_stock != "すべて" else base_df_stock
+        # ★★★ 絞り込みロジックを .isin() に変更
+        df_after_daibunrui_filter_stock = base_df_stock[base_df_stock['大分類'].isin(selected_daibunrui_stock)] if selected_daibunrui_stock else base_df_stock
+        
         if '小分類' in df_after_daibunrui_filter_stock.columns:
             shobunrui_options_stock = df_after_daibunrui_filter_stock['小分類'].dropna().unique().tolist()
             shobunrui_options_stock.sort()
             selected_shobunrui_stock = st.sidebar.multiselect("小分類で絞り込み（複数選択可）:", options=shobunrui_options_stock, key='shobunrui_stock')
         
         df_after_shobunrui_filter_stock = df_after_daibunrui_filter_stock[df_after_daibunrui_filter_stock['小分類'].isin(selected_shobunrui_stock)] if selected_shobunrui_stock else df_after_daibunrui_filter_stock
-
-        # ★★★【改修ポイント】★★★ 商品名あいまい検索フィルタを追加
         product_name_search_stock = st.sidebar.text_input("商品名であいまい検索:", key='product_name_stock').strip()
         df_after_name_filter_stock = df_after_shobunrui_filter_stock[df_after_shobunrui_filter_stock['商品名'].str.contains(product_name_search_stock, na=False)] if product_name_search_stock else df_after_shobunrui_filter_stock
-        
-        # --- 商品IDフィルタ (在庫) ---
         product_ids_input_stock = st.sidebar.text_input("商品IDで絞り込み (カンマ区切りで複数可):", key='product_id_stock').strip()
         selected_product_ids_stock = [pid.strip() for pid in product_ids_input_stock.split(',')] if product_ids_input_stock else []
-        # ★★★ 商品名フィルタ後のデータに対してIDフィルタを適用
         df_after_product_id_filter_stock = df_after_name_filter_stock[df_after_name_filter_stock['商品ID'].isin(selected_product_ids_stock)] if selected_product_ids_stock else df_after_name_filter_stock
         
         if '品質区分名' in df_after_product_id_filter_stock.columns:
@@ -248,12 +244,12 @@ try:
             st.subheader("月間出荷数")
             gyomu_display_str = "すべて" if selected_gyomu == "すべて" else gyomu_display_map.get(selected_gyomu, selected_gyomu)
             soko_display_str = "すべて" if selected_soko_shipping == "すべて" else soko_display_map.get(selected_soko_shipping, selected_soko_shipping)
-            # ★★★ フィルター表示更新
-            st.write(f"**大分類:** `{selected_daibunrui_shipping}` | **小分類:** `{selected_shobunrui_shipping if selected_shobunrui_shipping else 'すべて'}` | **商品名:** `{product_name_search_shipping if product_name_search_shipping else 'すべて'}` | **商品ID:** `{selected_product_ids_shipping if selected_product_ids_shipping else 'すべて'}` | **業務区分ID:** `{gyomu_display_str}` | **倉庫ID:** `{soko_display_str}`")
+            # ★★★ フィルター表示更新 (大分類)
+            st.write(f"**大分類:** `{selected_daibunrui_shipping if selected_daibunrui_shipping else 'すべて'}` | **小分類:** `{selected_shobunrui_shipping if selected_shobunrui_shipping else 'すべて'}` | **商品名:** `{product_name_search_shipping if product_name_search_shipping else 'すべて'}` | **商品ID:** `{selected_product_ids_shipping if selected_product_ids_shipping else 'すべて'}` | **業務区分ID:** `{gyomu_display_str}` | **倉庫ID:** `{soko_display_str}`")
             
-            # ★★★ フィルター適用ロジック更新
+            # ★★★ フィルター適用ロジック更新 (大分類)
             df_monthly_filtered = base_df_monthly[
-                (base_df_monthly['大分類'] == selected_daibunrui_shipping if selected_daibunrui_shipping != "すべて" else True) &
+                (base_df_monthly['大分類'].isin(selected_daibunrui_shipping) if selected_daibunrui_shipping else True) &
                 (base_df_monthly['小分類'].isin(selected_shobunrui_shipping) if selected_shobunrui_shipping else True) &
                 (base_df_monthly['商品名'].str.contains(product_name_search_shipping, na=False) if product_name_search_shipping else True) &
                 (base_df_monthly['商品ID'].isin(selected_product_ids_shipping) if selected_product_ids_shipping else True) &
@@ -305,12 +301,12 @@ try:
             if not base_df_weekly.empty:
                 st.markdown("---")
                 st.subheader("週間出荷数")
-                 # ★★★ フィルター表示更新
-                st.write(f"**大分類:** `{selected_daibunrui_shipping}` | **小分類:** `{selected_shobunrui_shipping if selected_shobunrui_shipping else 'すべて'}` | **商品名:** `{product_name_search_shipping if product_name_search_shipping else 'すべて'}` | **商品ID:** `{selected_product_ids_shipping if selected_product_ids_shipping else 'すべて'}` | **業務区分ID:** `{gyomu_display_str}` | **倉庫ID:** `{soko_display_str}`")
+                 # ★★★ フィルター表示更新 (大分類)
+                st.write(f"**大分類:** `{selected_daibunrui_shipping if selected_daibunrui_shipping else 'すべて'}` | **小分類:** `{selected_shobunrui_shipping if selected_shobunrui_shipping else 'すべて'}` | **商品名:** `{product_name_search_shipping if product_name_search_shipping else 'すべて'}` | **商品ID:** `{selected_product_ids_shipping if selected_product_ids_shipping else 'すべて'}` | **業務区分ID:** `{gyomu_display_str}` | **倉庫ID:** `{soko_display_str}`")
                 
-                # ★★★ フィルター適用ロジック更新
+                # ★★★ フィルター適用ロジック更新 (大分類)
                 df_weekly_filtered = base_df_weekly[
-                    (base_df_weekly['大分類'] == selected_daibunrui_shipping if selected_daibunrui_shipping != "すべて" else True) &
+                    (base_df_weekly['大分類'].isin(selected_daibunrui_shipping) if selected_daibunrui_shipping else True) &
                     (base_df_weekly['小分類'].isin(selected_shobunrui_shipping) if selected_shobunrui_shipping else True) &
                     (base_df_weekly['商品名'].str.contains(product_name_search_shipping, na=False) if product_name_search_shipping else True) &
                     (base_df_weekly['商品ID'].isin(selected_product_ids_shipping) if selected_product_ids_shipping else True) &
@@ -362,9 +358,9 @@ try:
     with tab_stock:
         st.header("📦 在庫情報")
         if not base_df_stock.empty:
-            # ★★★ フィルター適用ロジック更新
+            # ★★★ フィルター適用ロジック更新 (大分類)
             pivot_target_df_stock = base_df_stock[
-                (base_df_stock['大分類'] == selected_daibunrui_stock if selected_daibunrui_stock != "すべて" else True) &
+                (base_df_stock['大分類'].isin(selected_daibunrui_stock) if selected_daibunrui_stock else True) &
                 (base_df_stock['小分類'].isin(selected_shobunrui_stock) if selected_shobunrui_stock else True) &
                 (base_df_stock['商品名'].str.contains(product_name_search_stock, na=False) if product_name_search_stock else True) &
                 (base_df_stock['商品ID'].isin(selected_product_ids_stock) if selected_product_ids_stock else True) &
@@ -373,8 +369,8 @@ try:
 
             st.markdown("---")
             st.subheader("利用可能在庫")
-             # ★★★ フィルター表示更新
-            st.write(f"**大分類:** `{selected_daibunrui_stock}` | **小分類:** `{selected_shobunrui_stock if selected_shobunrui_stock else 'すべて'}` | **商品名:** `{product_name_search_stock if product_name_search_stock else 'すべて'}` | **商品ID:** `{selected_product_ids_stock if selected_product_ids_stock else 'すべて'}` | **品質区分名:** `{selected_quality_stock}`")
+             # ★★★ フィルター表示更新 (大分類)
+            st.write(f"**大分類:** `{selected_daibunrui_stock if selected_daibunrui_stock else 'すべて'}` | **小分類:** `{selected_shobunrui_stock if selected_shobunrui_stock else 'すべて'}` | **商品名:** `{product_name_search_stock if product_name_search_stock else 'すべて'}` | **商品ID:** `{selected_product_ids_stock if selected_product_ids_stock else 'すべて'}` | **品質区分名:** `{selected_quality_stock}`")
             
             required_cols_stock = ["商品ID", "商品名", "倉庫名", "在庫数(引当数を含む)", "引当数"]
             if not pivot_target_df_stock.empty and all(col in pivot_target_df_stock.columns for col in required_cols_stock):
@@ -382,7 +378,6 @@ try:
                     # (以降、在庫情報の表示部分は変更なし)
                     pivot_target_df_stock['実在庫数'] = pd.to_numeric(pivot_target_df_stock['在庫数(引当数を含む)'], errors='coerce').fillna(0) - pd.to_numeric(pivot_target_df_stock['引当数'], errors='coerce').fillna(0)
                     pivot_index_stock = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
-                    # マージ失敗などで分類列がない場合に対応
                     available_index_cols = [col for col in pivot_index_stock if col in pivot_target_df_stock.columns]
                     pivot_stock = pivot_target_df_stock.pivot_table(index=available_index_cols, columns="倉庫名", values="実在庫数", aggfunc="sum").fillna(0)
                     pivot_stock_filtered = pivot_stock[pivot_stock.sum(axis=1) != 0]
