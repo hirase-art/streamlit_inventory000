@@ -100,7 +100,7 @@ def add_labels_to_stacked_bar(ax, data_df):
 
 try:
     st.set_page_config(layout="wide") 
-    st.title('📊 在庫・出荷データの可視化アプリ')
+    st.title('INVENTORY & SHIPMENT DATA')
 
     # --- データの読み込み ---
     DATA_PATH1 = "T_9x30.csv"
@@ -414,4 +414,5 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラー: {e}")
+
 
