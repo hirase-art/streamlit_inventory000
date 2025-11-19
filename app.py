@@ -5,7 +5,7 @@ import glob # ★ ワイルドカードを扱うためにglobをインポート
 import matplotlib.pyplot as plt # ★ グラフ作成のためにpyplotをインポート
 import japanize_matplotlib # 日本語文字化け対策
 import numpy as np # ★ 数値計算のためにnumpyをインポート
-import matplotlib.gridspec as gridspec # ★ GridSpecを復活
+# import matplotlib.gridspec as gridspec # ★ GridSpecは不要になったため削除
 
 # --- ログ設定 ---
 logging.basicConfig(
@@ -105,20 +105,19 @@ try:
 
     # --- データの読み込み ---
     DATA_PATH1 = "T_9x30.csv"
-    DATA_PATH_PACK_MASTER = "PACK_Classification.csv"
-    DATA_PATH_SET_MASTER = "SET_Class.csv"
+    DATA_PATH_PACK_MASTER = "PACK_Classification.csv" # 変数名を変更
+    DATA_PATH_SET_MASTER = "SET_Class.csv" # ★★★ 新しいマスタのパスを追加
     DATA_PATH3_PATTERN = "CZ04003_*.csv"
     DATA_PATH5 = "T_9x07.csv"
 
     df1 = load_single_csv(DATA_PATH1, encoding='utf-8')
     df_pack_master = load_single_csv(DATA_PATH_PACK_MASTER, encoding='utf-8') 
-    df_set_master = load_single_csv(DATA_PATH_SET_MASTER, encoding='utf-8') 
+    df_set_master = load_single_csv(DATA_PATH_SET_MASTER, encoding='utf-8') # ★★★ SETマスタ読み込み
     df3 = load_multiple_csv(DATA_PATH3_PATTERN, encoding='cp932')
     df5 = load_single_csv(DATA_PATH5, encoding='utf-8')
 
 
-    # --- サイドバーのフィルター定義 ---
-    # 初期値を設定
+    # --- サイドバーのフィルターを先にすべて定義 ---
     base_df_monthly = pd.DataFrame()
     base_df_weekly = pd.DataFrame()
     selected_daibunrui_shipping = [] 
@@ -291,6 +290,7 @@ try:
             
             required_cols = ["倉庫ID", "業務区分ID", "商品ID", "month_code", "合計出荷数", "商品名", "大分類", "中分類", "小分類"]
             if not df_monthly_filtered.empty and all(col in df_monthly_filtered.columns for col in required_cols):
+                # (以降、月間出荷の表示部分は変更なし)
                 pivot = df_monthly_filtered.pivot_table(index=["大分類", "中分類", "小分類", "商品ID", "商品名"], columns="month_code", values="合計出荷数", aggfunc="sum").fillna(0)
                 recent_cols = pivot.columns[-num_months:] 
                 pivot_filtered = pivot[pivot[recent_cols].sum(axis=1) != 0]
@@ -332,8 +332,10 @@ try:
             if not base_df_weekly.empty:
                 st.markdown("---")
                 st.subheader("週間出荷数")
+                 # ★★★ フィルター表示更新 (大分類)
                 st.write(f"**大分類:** `{selected_daibunrui_shipping if selected_daibunrui_shipping else 'すべて'}` | **小分類:** `{selected_shobunrui_shipping if selected_shobunrui_shipping else 'すべて'}` | **商品名:** `{product_name_search_shipping if product_name_search_shipping else 'すべて'}` | **商品ID:** `{selected_product_ids_shipping if selected_product_ids_shipping else 'すべて'}` | **業務区分ID:** `{gyomu_display_str}` | **倉庫ID:** `{soko_display_str}`")
                 
+                # ★★★ フィルター適用ロジック更新 (大分類)
                 df_weekly_filtered = base_df_weekly[
                     (base_df_weekly['大分類'].isin(selected_daibunrui_shipping) if selected_daibunrui_shipping else True) &
                     (base_df_weekly['小分類'].isin(selected_shobunrui_shipping) if selected_shobunrui_shipping else True) &
@@ -345,6 +347,7 @@ try:
                 
                 required_cols_weekly = ["倉庫ID", "業務区分ID", "商品ID", "week_code", "合計出荷数", "商品名", "大分類", "中分類", "小分類"]
                 if not df_weekly_filtered.empty and all(col in df_weekly_filtered.columns for col in required_cols_weekly):
+                    # (以降、週間出荷の表示部分は変更なし)
                     pivot_weekly = df_weekly_filtered.pivot_table(index=["大分類", "中分類", "小分類", "商品ID", "商品名"], columns="week_code", values="合計出荷数", aggfunc="sum").fillna(0)
                     recent_cols_weekly = pivot_weekly.columns[-num_weeks:]
                     pivot_weekly_filtered = pivot_weekly[pivot_weekly[recent_cols_weekly].sum(axis=1) != 0]
@@ -383,6 +386,7 @@ try:
                     st.warning("週間出荷: 条件一致データ無 or 列不足")
     
     # --- 在庫情報のタブ ---
+    # (在庫情報は変更なし)
     with tab_stock:
         st.header("📦 在庫情報")
         if not base_df_stock.empty:
@@ -416,7 +420,7 @@ try:
                         st.dataframe(pivot_stock_filtered.reset_index(), height=400, use_container_width=True)
                     with col2:
                         st.write("グラフ（大分類別 在庫構成比）")
-                        if '大分類' in pivot_target_df_stock.columns:
+                        if '大分類' in pivot_target_df_stock.columns and '実在庫数' in pivot_target_df_stock.columns:
                             pie_data = pivot_target_df_stock.groupby('大分類')['実在庫数'].sum()
                             pie_data = pie_data[pie_data > 0] 
                             if not pie_data.empty:
