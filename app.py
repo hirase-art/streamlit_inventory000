@@ -95,7 +95,7 @@ def add_labels_to_stacked_bar(ax, data_df):
         for i, val in enumerate(valid_non_zero_values):
              if i < len(valid_x_positions):
                 ax.text(valid_x_positions[i], valid_y_pos.iloc[i], f'{int(val)}', 
-                        ha='center', va='center', fontsize=5, color='white', fontweight='bold') 
+                        ha='center', va='center', fontsize=6, color='white', fontweight='bold') 
             
         bottom += values.fillna(0) 
 
@@ -450,3 +450,4 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラー: {e}")
+
