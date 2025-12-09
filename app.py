@@ -310,11 +310,11 @@ try:
                     # 横計（列の合計）を追加
                     pivot_display['合計'] = pivot_display.sum(axis=1)
                     # 縦計（行の合計）を追加
-                    # 一時的にインデックスをリセットして計算しやすくするアプローチもあるが、
-                    # ここではシンプルにデータフレームのsumを使ってSeriesを作成し、追加する
                     total_row = pivot_display.sum()
-                    total_row.name = ('合計',) * len(pivot_display.index.names) # インデックスのレベル数に合わせてタプルを作成
-                    pivot_display = pd.concat([pivot_display, total_row.to_frame().T]) # 行を追加
+                    total_row.name = ('合計',) * len(pivot_display.index.names) 
+                    pivot_display = pd.concat([pivot_display, total_row.to_frame().T]) 
+                    # ★★★ ここでインデックス名を再設定して level_0 等になるのを防ぐ ★★★
+                    pivot_display.index.names = index_cols
 
                 col1, col2 = st.columns([2, 1])
                 with col1:
@@ -395,6 +395,8 @@ try:
                         total_row_w = pivot_weekly_display.sum()
                         total_row_w.name = ('合計',) * len(pivot_weekly_display.index.names)
                         pivot_weekly_display = pd.concat([pivot_weekly_display, total_row_w.to_frame().T])
+                        # ★★★ ここでインデックス名を再設定して level_0 等になるのを防ぐ ★★★
+                        pivot_weekly_display.index.names = index_cols_w
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
