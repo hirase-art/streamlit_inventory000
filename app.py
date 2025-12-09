@@ -5,7 +5,7 @@ import glob # ★ ワイルドカードを扱うためにglobをインポート
 import matplotlib.pyplot as plt # ★ グラフ作成のためにpyplotをインポート
 import japanize_matplotlib # 日本語文字化け対策
 import numpy as np # ★ 数値計算のためにnumpyをインポート
-# import matplotlib.gridspec as gridspec # ★ GridSpecは不要になったため削除
+import matplotlib.gridspec as gridspec
 
 # --- ログ設定 ---
 logging.basicConfig(
@@ -485,3 +485,4 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラー: {e}")
+
