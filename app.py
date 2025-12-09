@@ -5,7 +5,7 @@ import glob # ★ ワイルドカードを扱うためにglobをインポート
 import matplotlib.pyplot as plt # ★ グラフ作成のためにpyplotをインポート
 import japanize_matplotlib # 日本語文字化け対策
 import numpy as np # ★ 数値計算のためにnumpyをインポート
-import matplotlib.gridspec as gridspec # ★ GridSpecを有効化
+# import matplotlib.gridspec as gridspec # ★ GridSpecは不要になったため削除
 
 # --- ログ設定 ---
 logging.basicConfig(
@@ -132,7 +132,7 @@ try:
     soko_display_map = {'7': '大阪', '8': '千葉'}
     num_months = 12 
     num_weeks = 12 
-    aggregation_level = "商品IDあり" # デフォルト値
+    aggregation_level = "商品ID" # デフォルト値
     show_total_column = "なし" # デフォルト値
 
     # --- 出荷情報フィルタの準備 ---
@@ -164,9 +164,9 @@ try:
                 base_df_weekly = pd.merge(df5, df_master_shipping, on='商品ID', how='left')
 
             # --- フィルタUI ---
-            # ★★★【改修ポイント】★★★ 集計粒度と合計表示の選択肢を追加
+            # ★★★【改修ポイント】★★★ 集計粒度を4段階に変更
             st.sidebar.markdown("---")
-            aggregation_level = st.sidebar.radio("集計粒度:", ["商品IDあり", "商品IDなし"], horizontal=True, key='agg_level')
+            aggregation_level = st.sidebar.radio("集計粒度:", ["大分類", "中分類", "小分類", "商品ID"], index=3, horizontal=True, key='agg_level')
             show_total_column = st.sidebar.radio("最終列合計表示:", ["なし", "あり"], horizontal=True, key='show_total')
             st.sidebar.markdown("---")
 
@@ -286,15 +286,19 @@ try:
             required_cols = ["倉庫ID", "業務区分ID", "商品ID", "month_code", "合計出荷数", "商品名", "大分類", "中分類", "小分類"]
             if not df_monthly_filtered.empty and all(col in df_monthly_filtered.columns for col in required_cols):
                 
-                # ★★★【改修ポイント】★★★ 集計粒度に応じてインデックスを切り替え
-                if aggregation_level == "商品IDあり":
-                    index_cols = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
-                    # ★ グラフは常に大分類で積み上げ
-                    graph_stack_col = "大分類" 
-                else: # 商品IDなし
-                    index_cols = ["大分類", "中分類", "小分類"]
-                    # ★ グラフは常に大分類で積み上げ
+                # ★★★【改修ポイント】★★★ 4段階の集計粒度に対応
+                if aggregation_level == "大分類":
+                    index_cols = ["大分類"]
                     graph_stack_col = "大分類"
+                elif aggregation_level == "中分類":
+                    index_cols = ["大分類", "中分類"]
+                    graph_stack_col = "中分類"
+                elif aggregation_level == "小分類":
+                    index_cols = ["大分類", "中分類", "小分類"]
+                    graph_stack_col = "小分類"
+                else: # 商品ID
+                    index_cols = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
+                    graph_stack_col = "商品名"
 
                 pivot = df_monthly_filtered.pivot_table(index=index_cols, columns="month_code", values="合計出荷数", aggfunc="sum").fillna(0)
                 recent_cols = pivot.columns[-num_months:] 
@@ -357,15 +361,19 @@ try:
                 required_cols_weekly = ["倉庫ID", "業務区分ID", "商品ID", "week_code", "合計出荷数", "商品名", "大分類", "中分類", "小分類"]
                 if not df_weekly_filtered.empty and all(col in df_weekly_filtered.columns for col in required_cols_weekly):
                     
-                    # ★★★【改修ポイント】★★★ 集計粒度に応じてインデックスを切り替え（週間）
-                    if aggregation_level == "商品IDあり":
-                        index_cols_w = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
-                        # ★ グラフは常に大分類で積み上げ
+                    # ★★★【改修ポイント】★★★ 4段階の集計粒度に対応（週間）
+                    if aggregation_level == "大分類":
+                        index_cols_w = ["大分類"]
                         graph_stack_col_w = "大分類"
-                    else:
+                    elif aggregation_level == "中分類":
+                        index_cols_w = ["大分類", "中分類"]
+                        graph_stack_col_w = "中分類"
+                    elif aggregation_level == "小分類":
                         index_cols_w = ["大分類", "中分類", "小分類"]
-                        # ★ グラフは常に大分類で積み上げ
-                        graph_stack_col_w = "大分類"
+                        graph_stack_col_w = "小分類"
+                    else: # 商品ID
+                        index_cols_w = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
+                        graph_stack_col_w = "商品名"
 
                     pivot_weekly = df_weekly_filtered.pivot_table(index=index_cols_w, columns="week_code", values="合計出荷数", aggfunc="sum").fillna(0)
                     recent_cols_weekly = pivot_weekly.columns[-num_weeks:]
@@ -461,7 +469,14 @@ try:
                 st.warning("在庫情報: 条件一致データ無 or 列不足")
 
     # --- 共通のフッターなど ---
-    # (省略)
+    st.markdown("---")
+    with st.expander("取り込みデータファイルの仕様について"):
+        st.markdown("""
+        - **月間出荷情報 (T_9x30.csv)**: 月ごとの出荷実績データ。
+        - **商品マスタ (PACK_Classification.csv)**: 商品の分類情報（大分類、中分類、小分類）を格納。
+        - **在庫情報 (CZ04003_*.csv)**: 日々の在庫スナップショット。ワイルドカードで複数ファイルを読み込みます。
+        - **週間出荷情報 (T_9x07.csv)**: 週ごとの出荷実績データ。
+        """)
 
 except Exception as e:
     logging.critical(f"--- アプリケーションの未補足の致命的エラー: {e} ---", exc_info=True)
