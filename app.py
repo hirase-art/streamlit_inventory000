@@ -164,10 +164,10 @@ try:
                 base_df_weekly = pd.merge(df5, df_master_shipping, on='商品ID', how='left')
 
             # --- フィルタUI ---
-            # ★★★【改修ポイント】★★★ 集計粒度を4段階に変更
+            # ★★★【改修ポイント】★★★ 合計表示のラベルを変更
             st.sidebar.markdown("---")
             aggregation_level = st.sidebar.radio("集計粒度:", ["大分類", "中分類", "小分類", "商品ID"], index=3, horizontal=True, key='agg_level')
-            show_total_column = st.sidebar.radio("最終列合計表示:", ["なし", "あり"], horizontal=True, key='show_total')
+            show_total_column = st.sidebar.radio("合計表示:", ["なし", "あり"], horizontal=True, key='show_total')
             st.sidebar.markdown("---")
 
             if '大分類' in base_df_monthly.columns:
@@ -286,7 +286,7 @@ try:
             required_cols = ["倉庫ID", "業務区分ID", "商品ID", "month_code", "合計出荷数", "商品名", "大分類", "中分類", "小分類"]
             if not df_monthly_filtered.empty and all(col in df_monthly_filtered.columns for col in required_cols):
                 
-                # ★★★【改修ポイント】★★★ 4段階の集計粒度に対応
+                # 集計粒度に応じてインデックスを切り替え
                 if aggregation_level == "大分類":
                     index_cols = ["大分類"]
                     graph_stack_col = "大分類"
@@ -303,11 +303,18 @@ try:
                 pivot = df_monthly_filtered.pivot_table(index=index_cols, columns="month_code", values="合計出荷数", aggfunc="sum").fillna(0)
                 recent_cols = pivot.columns[-num_months:] 
                 pivot_filtered = pivot[pivot[recent_cols].sum(axis=1) != 0]
-                pivot_display = pivot_filtered.loc[:, recent_cols].copy() # copyを作成して警告回避
+                pivot_display = pivot_filtered.loc[:, recent_cols].copy() 
 
-                # ★★★【改修ポイント】★★★ 合計列を追加
+                # ★★★【改修ポイント】★★★ 合計列と合計行を追加
                 if show_total_column == "あり":
+                    # 横計（列の合計）を追加
                     pivot_display['合計'] = pivot_display.sum(axis=1)
+                    # 縦計（行の合計）を追加
+                    # 一時的にインデックスをリセットして計算しやすくするアプローチもあるが、
+                    # ここではシンプルにデータフレームのsumを使ってSeriesを作成し、追加する
+                    total_row = pivot_display.sum()
+                    total_row.name = ('合計',) * len(pivot_display.index.names) # インデックスのレベル数に合わせてタプルを作成
+                    pivot_display = pd.concat([pivot_display, total_row.to_frame().T]) # 行を追加
 
                 col1, col2 = st.columns([2, 1])
                 with col1:
@@ -361,7 +368,7 @@ try:
                 required_cols_weekly = ["倉庫ID", "業務区分ID", "商品ID", "week_code", "合計出荷数", "商品名", "大分類", "中分類", "小分類"]
                 if not df_weekly_filtered.empty and all(col in df_weekly_filtered.columns for col in required_cols_weekly):
                     
-                    # ★★★【改修ポイント】★★★ 4段階の集計粒度に対応（週間）
+                    # 集計粒度に応じてインデックスを切り替え（週間）
                     if aggregation_level == "大分類":
                         index_cols_w = ["大分類"]
                         graph_stack_col_w = "大分類"
@@ -380,9 +387,14 @@ try:
                     pivot_weekly_filtered = pivot_weekly[pivot_weekly[recent_cols_weekly].sum(axis=1) != 0]
                     pivot_weekly_display = pivot_weekly_filtered.loc[:, recent_cols_weekly].copy()
 
-                    # ★★★【改修ポイント】★★★ 合計列を追加（週間）
+                    # ★★★【改修ポイント】★★★ 合計列と合計行を追加（週間）
                     if show_total_column == "あり":
+                        # 横計
                         pivot_weekly_display['合計'] = pivot_weekly_display.sum(axis=1)
+                        # 縦計
+                        total_row_w = pivot_weekly_display.sum()
+                        total_row_w.name = ('合計',) * len(pivot_weekly_display.index.names)
+                        pivot_weekly_display = pd.concat([pivot_weekly_display, total_row_w.to_frame().T])
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
@@ -485,4 +497,3 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラー: {e}")
-
