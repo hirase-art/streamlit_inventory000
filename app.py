@@ -101,6 +101,12 @@ def add_labels_to_stacked_bar(ax, data_df):
             
         bottom += values.fillna(0) 
 
+# ★★★【改修ポイント】★★★ CSV変換用関数
+@st.cache_data
+def convert_df(df):
+    # utf-8-sigにすることでExcelで開いた時の文字化けを防ぐ
+    return df.to_csv(encoding='utf-8-sig').encode('utf-8-sig')
+
 try:
     st.set_page_config(layout="wide") 
     st.title('📊 在庫・出荷データの可視化アプリ')
@@ -164,7 +170,6 @@ try:
                 base_df_weekly = pd.merge(df5, df_master_shipping, on='商品ID', how='left')
 
             # --- フィルタUI ---
-            # ★★★【改修ポイント】★★★ 合計表示のラベルを変更
             st.sidebar.markdown("---")
             aggregation_level = st.sidebar.radio("集計粒度:", ["大分類", "中分類", "小分類", "商品ID"], index=3, horizontal=True, key='agg_level')
             show_total_column = st.sidebar.radio("合計表示:", ["なし", "あり"], horizontal=True, key='show_total')
@@ -305,7 +310,7 @@ try:
                 pivot_filtered = pivot[pivot[recent_cols].sum(axis=1) != 0]
                 pivot_display = pivot_filtered.loc[:, recent_cols].copy() 
 
-                # ★★★【改修ポイント】★★★ 合計列と合計行を追加
+                # 合計列と合計行を追加
                 if show_total_column == "あり":
                     # 横計（列の合計）を追加
                     pivot_display['合計'] = pivot_display.sum(axis=1)
@@ -313,13 +318,21 @@ try:
                     total_row = pivot_display.sum()
                     total_row.name = ('合計',) * len(pivot_display.index.names) 
                     pivot_display = pd.concat([pivot_display, total_row.to_frame().T]) 
-                    # ★★★ ここでインデックス名を再設定して level_0 等になるのを防ぐ ★★★
                     pivot_display.index.names = index_cols
 
                 col1, col2 = st.columns([2, 1])
                 with col1:
                     st.info(f"ヒント: テーブルは直近{num_months}ヶ月合計が0でないデータを表示しています。")
                     st.dataframe(pivot_display.reset_index(), height=400, use_container_width=True)
+                    # ★★★【改修ポイント】★★★ CSVダウンロードボタンを追加
+                    csv = convert_df(pivot_display)
+                    st.download_button(
+                        label="データをCSVとしてダウンロード",
+                        data=csv,
+                        file_name=f'monthly_shipping_data_{num_months}months.csv',
+                        mime='text/csv',
+                    )
+
                 with col2:
                     st.write(f"グラフ（{graph_stack_col}別積み上げ）") 
                     # グラフも動的に集計対象を変更
@@ -387,7 +400,7 @@ try:
                     pivot_weekly_filtered = pivot_weekly[pivot_weekly[recent_cols_weekly].sum(axis=1) != 0]
                     pivot_weekly_display = pivot_weekly_filtered.loc[:, recent_cols_weekly].copy()
 
-                    # ★★★【改修ポイント】★★★ 合計列と合計行を追加（週間）
+                    # 合計列と合計行を追加（週間）
                     if show_total_column == "あり":
                         # 横計
                         pivot_weekly_display['合計'] = pivot_weekly_display.sum(axis=1)
@@ -395,13 +408,20 @@ try:
                         total_row_w = pivot_weekly_display.sum()
                         total_row_w.name = ('合計',) * len(pivot_weekly_display.index.names)
                         pivot_weekly_display = pd.concat([pivot_weekly_display, total_row_w.to_frame().T])
-                        # ★★★ ここでインデックス名を再設定して level_0 等になるのを防ぐ ★★★
                         pivot_weekly_display.index.names = index_cols_w
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
                         st.info(f"ヒント: テーブルは直近{num_weeks}週合計が0でないデータを表示しています。")
                         st.dataframe(pivot_weekly_display.reset_index(), height=400, use_container_width=True)
+                        # ★★★【改修ポイント】★★★ CSVダウンロードボタンを追加
+                        csv_weekly = convert_df(pivot_weekly_display)
+                        st.download_button(
+                            label="データをCSVとしてダウンロード",
+                            data=csv_weekly,
+                            file_name=f'weekly_shipping_data_{num_weeks}weeks.csv',
+                            mime='text/csv',
+                        )
                     with col2:
                         st.write(f"グラフ（{graph_stack_col_w}別積み上げ）") 
                         chart_df_weekly_base = df_weekly_filtered.pivot_table(index='week_code', columns=graph_stack_col_w, values='合計出荷数', aggfunc='sum').fillna(0)
@@ -464,6 +484,14 @@ try:
                     with col1:
                         st.info("ヒント: テーブルは合計在庫が0でないデータを表示しています。")
                         st.dataframe(pivot_stock_filtered.reset_index(), height=400, use_container_width=True)
+                        # ★★★【改修ポイント】★★★ CSVダウンロードボタンを追加
+                        csv_stock = convert_df(pivot_stock_filtered)
+                        st.download_button(
+                            label="データをCSVとしてダウンロード",
+                            data=csv_stock,
+                            file_name='inventory_data.csv',
+                            mime='text/csv',
+                        )
                     with col2:
                         st.write("グラフ（大分類別 在庫構成比）")
                         if '大分類' in pivot_target_df_stock.columns and '実在庫数' in pivot_target_df_stock.columns:
