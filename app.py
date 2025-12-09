@@ -5,7 +5,7 @@ import glob # ★ ワイルドカードを扱うためにglobをインポート
 import matplotlib.pyplot as plt # ★ グラフ作成のためにpyplotをインポート
 import japanize_matplotlib # 日本語文字化け対策
 import numpy as np # ★ 数値計算のためにnumpyをインポート
-import matplotlib.gridspec as gridspec
+import matplotlib.gridspec as gridspec # ★ GridSpecを有効化
 
 # --- ログ設定 ---
 logging.basicConfig(
@@ -289,10 +289,12 @@ try:
                 # ★★★【改修ポイント】★★★ 集計粒度に応じてインデックスを切り替え
                 if aggregation_level == "商品IDあり":
                     index_cols = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
-                    graph_stack_col = "商品名" # グラフの積み上げ要素
+                    # ★ グラフは常に大分類で積み上げ
+                    graph_stack_col = "大分類" 
                 else: # 商品IDなし
                     index_cols = ["大分類", "中分類", "小分類"]
-                    graph_stack_col = "小分類" # 商品名がないので小分類で積み上げ（任意に変更可能）
+                    # ★ グラフは常に大分類で積み上げ
+                    graph_stack_col = "大分類"
 
                 pivot = df_monthly_filtered.pivot_table(index=index_cols, columns="month_code", values="合計出荷数", aggfunc="sum").fillna(0)
                 recent_cols = pivot.columns[-num_months:] 
@@ -358,10 +360,12 @@ try:
                     # ★★★【改修ポイント】★★★ 集計粒度に応じてインデックスを切り替え（週間）
                     if aggregation_level == "商品IDあり":
                         index_cols_w = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
-                        graph_stack_col_w = "商品名"
+                        # ★ グラフは常に大分類で積み上げ
+                        graph_stack_col_w = "大分類"
                     else:
                         index_cols_w = ["大分類", "中分類", "小分類"]
-                        graph_stack_col_w = "小分類"
+                        # ★ グラフは常に大分類で積み上げ
+                        graph_stack_col_w = "大分類"
 
                     pivot_weekly = df_weekly_filtered.pivot_table(index=index_cols_w, columns="week_code", values="合計出荷数", aggfunc="sum").fillna(0)
                     recent_cols_weekly = pivot_weekly.columns[-num_weeks:]
@@ -410,6 +414,7 @@ try:
     with tab_stock:
         st.header("📦 在庫情報")
         if not base_df_stock.empty:
+            # ★★★ フィルター適用ロジック更新 (大分類)
             pivot_target_df_stock = base_df_stock[
                 (base_df_stock['大分類'].isin(selected_daibunrui_stock) if selected_daibunrui_stock else True) &
                 (base_df_stock['小分類'].isin(selected_shobunrui_stock) if selected_shobunrui_stock else True) &
@@ -420,11 +425,13 @@ try:
 
             st.markdown("---")
             st.subheader("利用可能在庫")
+             # ★★★ フィルター表示更新 (大分類)
             st.write(f"**大分類:** `{selected_daibunrui_stock if selected_daibunrui_stock else 'すべて'}` | **小分類:** `{selected_shobunrui_stock if selected_shobunrui_stock else 'すべて'}` | **商品名:** `{product_name_search_stock if product_name_search_stock else 'すべて'}` | **商品ID:** `{selected_product_ids_stock if selected_product_ids_stock else 'すべて'}` | **品質区分名:** `{selected_quality_stock}`")
             
             required_cols_stock = ["商品ID", "商品名", "倉庫名", "在庫数(引当数を含む)", "引当数"]
             if not pivot_target_df_stock.empty and all(col in pivot_target_df_stock.columns for col in required_cols_stock):
                 try:
+                    # (以降、在庫情報の表示部分は変更なし)
                     pivot_target_df_stock['実在庫数'] = pd.to_numeric(pivot_target_df_stock['在庫数(引当数を含む)'], errors='coerce').fillna(0) - pd.to_numeric(pivot_target_df_stock['引当数'], errors='coerce').fillna(0)
                     pivot_index_stock = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
                     available_index_cols = [col for col in pivot_index_stock if col in pivot_target_df_stock.columns]
@@ -463,4 +470,3 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラー: {e}")
-
