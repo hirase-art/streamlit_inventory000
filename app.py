@@ -213,7 +213,7 @@ try:
                 selected_soko_shipping = st.sidebar.radio("倉庫IDで絞り込み:", options=soko_options, key='soko_shipping', format_func=lambda x: "すべて" if x == "すべて" else soko_display_map.get(x, x))
             
             st.sidebar.markdown("---")
-            num_months = st.sidebar.slider("月間表示期間（ヶ月）", min_value=3, max_value=25, value=12, key='num_months')
+            num_months = st.sidebar.slider("月間表示期間（ヶ月）", min_value=3, max_value=26, value=12, key='num_months')
             num_weeks = st.sidebar.slider("週間表示期間（週）", min_value=3, max_value=15, value=12, key='num_weeks')
         else:
             st.error(f"選択されたマスタ({unit_selection})に必要な列が含まれていません。")
@@ -527,5 +527,6 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラー: {e}")
+
 
 
