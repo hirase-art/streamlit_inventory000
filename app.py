@@ -7,8 +7,6 @@ import japanize_matplotlib # 日本語文字化け対策
 import numpy as np # ★ 数値計算のためにnumpyをインポート
 import matplotlib.gridspec as gridspec
 
-conn = st.connection("postgresql", type="sql")
-
 # --- ログ設定 ---
 logging.basicConfig(
     level=logging.INFO,
@@ -537,6 +535,7 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラー: {e}")
+
 
 
 
