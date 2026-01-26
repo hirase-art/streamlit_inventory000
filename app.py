@@ -7,6 +7,8 @@ import japanize_matplotlib # 日本語文字化け対策
 import numpy as np # ★ 数値計算のためにnumpyをインポート
 import matplotlib.gridspec as gridspec
 
+conn = st.connection("postgresql", type="sql")
+
 # --- ログ設定 ---
 logging.basicConfig(
     level=logging.INFO,
@@ -16,9 +18,17 @@ logging.basicConfig(
 )
 
 logging.info("--- アプリケーション開始 ---")
+# --------------------------------------------------------------------------
+# 1. Supabase 接続設定 (新規追加)
+# --------------------------------------------------------------------------
+# .streamlit/secrets.toml に設定した情報を使用して接続します
+try:
+    conn = st.connection("postgresql", type="sql")
+except Exception as e:
+    st.error(f"Supabaseへの接続に失敗しました。secrets.tomlを確認してください: {e}")
 
 # --------------------------------------------------------------------------
-# データ読み込み関数
+# 2. データ読み込み関数
 # --------------------------------------------------------------------------
 @st.cache_data
 def load_single_csv(path, encoding='utf-8'):
@@ -527,6 +537,7 @@ except Exception as e:
          logging.error(f"グラフ描画エラー（Image size limit）: {e}")
     else:
         st.error(f"予期せぬエラー: {e}")
+
 
 
 
