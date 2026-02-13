@@ -3,114 +3,135 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import japanize_matplotlib
+import matplotlib.gridspec as gridspec
+import logging
 
 # --- ページ設定 ---
 st.set_page_config(layout="wide", page_title="在庫・出荷可視化システム")
 
 # --------------------------------------------------------------------------
-# 1. 接続 & データ取得 (Supabase)
+# 1. Supabase 接続 & データ取得
 # --------------------------------------------------------------------------
 conn = st.connection("postgresql", type="sql")
 
 @st.cache_data(ttl=600)
-def load_supabase(table):
-    df = conn.query(f'SELECT * FROM "{table}";')
-    # 文字列として扱うべき列の変換
-    for col in ['商品ID', '倉庫ID', '業務区分ID', 'SET_ID', '品質区分ID']:
-        if col in df.columns:
-            df[col] = df[col].astype(str).replace('None', np.nan).replace('nan', np.nan)
-    return df
-
-@st.cache_data
-def load_csv(path):
+def load_supabase(table_name):
+    """Supabaseからデータを取得し、ID列を文字列に固定する"""
     try:
-        return pd.read_csv(path, dtype={'商品ID': str, 'SET_ID': str})
-    except:
+        query = f'SELECT * FROM "{table_name}";'
+        df = conn.query(query)
+        # ID関連の列を文字列に変換
+        str_cols = ['商品ID', '倉庫ID', '業務区分ID', 'SET_ID', '品質区分ID', 'month_code', 'week_code']
+        for col in str_cols:
+            if col in df.columns:
+                df[col] = df[col].astype(str).replace('None', np.nan).replace('nan', np.nan)
+        return df
+    except Exception as e:
+        st.error(f"テーブル '{table_name}' の取得に失敗しました: {e}")
         return pd.DataFrame()
 
-# データ読み込み
-with st.spinner('データを同期中...'):
-    df_inv = load_supabase("在庫情報")   # 旧 CZ04003
-    df_ship_w = load_supabase("T_9x07") # 旧 T_9x07
-    df_ship_m = load_csv("T_9x30.csv")   # まだCSV
-    df_pack = load_csv("PACK_Classification.csv")
-    df_set = load_csv("SET_Class.csv")
+# 全データをSupabaseから一気にロード
+with st.spinner('Supabaseから最新データを同期中...'):
+    df_inv   = load_supabase("在庫情報")            # 在庫
+    df_ship_m = load_supabase("T_9x30")            # 月間出荷
+    df_ship_w = load_supabase("T_9x07")            # 週間出荷
+    df_pack  = load_supabase("Pack_Classification") # マスタ
+    df_set   = load_supabase("SET_Class")           # セットマスタ
 
 # --------------------------------------------------------------------------
-# 2. サイドバー：共通・出荷情報フィルタ
+# 2. サイドバー：共通フィルタロジック (シャープなUIの復活)
 # --------------------------------------------------------------------------
-st.sidebar.header(":blue[🚚 共通・出荷フィルタ]")
+st.sidebar.header(":blue[🚚 共通出荷・検索フィルタ]")
 unit = st.sidebar.radio("集計単位:", ["Pack", "SET"], horizontal=True)
 
-# マスタの切り替え
-df_m = df_pack.copy() if unit == "Pack" else df_set.copy().rename(columns={'SET_ID':'商品ID','セット構成名称':'商品名'})
+# マスタの切り替えと整形
+if unit == "Pack":
+    df_m = df_pack.copy()
+else:
+    df_m = df_set.copy().rename(columns={'SET_ID': '商品ID', 'セット構成名称': '商品名'})
 
-# 基本データのマージ
-ship_m_full = pd.merge(df_ship_m, df_m, on='商品ID', how='left') if not df_ship_m.empty else pd.DataFrame()
-ship_w_full = pd.merge(df_ship_w, df_m, on='商品ID', how='left') if not df_ship_w.empty else pd.DataFrame()
-
-# --- 検索・抽出機能の復活 ---
+# 検索機能 (曖昧検索・ID検索)
 search_id = st.sidebar.text_input("🔍 商品ID検索 (完全一致):").strip()
-search_name = st.sidebar.text_input("🔍 商品名検索 (曖昧):").strip()
+search_name = st.sidebar.text_input("🔍 商品名検索 (あいまい):").strip()
 
-if '大分類' in df_m.columns:
+# 大・中・小分類の連動フィルタ
+if not df_m.empty:
+    st.sidebar.markdown("---")
+    agg_level = st.sidebar.radio("集計粒度:", ["大分類", "中分類", "小分類", "商品ID"], index=3, horizontal=True)
+    
     sel_dai = st.sidebar.multiselect("大分類:", options=sorted(df_m['大分類'].dropna().unique()))
-    sel_chu = st.sidebar.multiselect("中分類:", options=sorted(df_m[df_m['大分類'].isin(sel_dai)]['中分類'].unique()) if sel_dai else [])
-    sel_sho = st.sidebar.multiselect("小分類:", options=sorted(df_m[df_m['中分類'].isin(sel_chu)]['小分類'].unique()) if sel_chu else [])
+    
+    # 大分類が選ばれたら中分類を絞り込む
+    chu_opts = sorted(df_m[df_m['大分類'].isin(sel_dai)]['中分類'].dropna().unique()) if sel_dai else sorted(df_m['中分類'].dropna().unique())
+    sel_chu = st.sidebar.multiselect("中分類:", options=chu_opts)
+    
+    # 中分類が選ばれたら小分類を絞り込む
+    sho_opts = sorted(df_m[df_m['中分類'].isin(sel_chu)]['小分類'].dropna().unique()) if sel_chu else sorted(df_m['小分類'].dropna().unique())
+    sel_sho = st.sidebar.multiselect("小分類:", options=sho_opts)
 
 # --------------------------------------------------------------------------
-# 3. サイドバー：在庫情報フィルタ (復活！)
+# 3. フィルタ適用関数
 # --------------------------------------------------------------------------
-st.sidebar.markdown("---")
-st.sidebar.header(":orange[📦 在庫情報フィルタ]")
-sel_souko = st.sidebar.multiselect("倉庫指定:", options=sorted(df_inv['倉庫ID'].unique()) if not df_inv.empty else [])
-show_zero = st.sidebar.checkbox("在庫0を表示しない", value=True)
-
-# --------------------------------------------------------------------------
-# 4. データフィルタリング処理
-# --------------------------------------------------------------------------
-def apply_filter(df):
+def apply_filters(df, master_df):
     if df.empty: return df
-    tmp = df.copy()
-    if search_id: tmp = tmp[tmp['商品ID'] == search_id]
-    if search_name: tmp = tmp[tmp['商品名'].str.contains(search_name, na=False)]
-    if '大分類' in tmp.columns and sel_dai: tmp = tmp[tmp['大分類'].isin(sel_dai)]
-    if '中分類' in tmp.columns and sel_chu: tmp = tmp[tmp['中分類'].isin(sel_chu)]
-    if '小分類' in tmp.columns and sel_sho: tmp = tmp[tmp['小分類'].isin(sel_sho)]
-    return tmp
-
-# 出荷データのフィルタ適用
-ship_m_f = apply_filter(ship_m_full)
-ship_w_f = apply_filter(ship_w_full)
-
-# 在庫データのフィルタ適用（マスタ結合後）
-inv_full = pd.merge(df_inv, df_pack, on='商品ID', how='left') if not df_inv.empty else pd.DataFrame()
-inv_f = apply_filter(inv_full)
-if sel_souko: inv_f = inv_f[inv_f['倉庫ID'].isin(sel_souko)]
-if show_zero: inv_f = inv_f[inv_f['在庫数(引当数を含む)'] > 0]
+    # マスタと結合して分類情報を付与
+    res = pd.merge(df, master_df[['商品ID', '商品名', '大分類', '中分類', '小分類']], on='商品ID', how='left', suffixes=('', '_m'))
+    
+    # フィルタ条件の適用
+    if search_id: res = res[res['商品ID'] == search_id]
+    if search_name: res = res[res['商品名'].str.contains(search_name, na=False)]
+    if sel_dai: res = res[res['大分類'].isin(sel_dai)]
+    if sel_chu: res = res[res['中分類'].isin(sel_chu)]
+    if sel_sho: res = res[res['小分類'].isin(sel_sho)]
+    return res
 
 # --------------------------------------------------------------------------
-# 5. メイン表示部
+# 4. タブ表示部
 # --------------------------------------------------------------------------
-tab1, tab2 = st.tabs(["📝 出荷実績", "📊 在庫分析"])
+tab_ship, tab_inv = st.tabs(["📝 出荷情報分析", "📊 在庫詳細分析"])
 
-with tab1:
-    st.subheader("月間出荷実績 (ピボット)")
-    if not ship_m_f.empty:
-        piv = ship_m_f.pivot_table(index=['大分類','商品ID','商品名'], columns='month_code', values='合計出荷数', aggfunc='sum').fillna(0)
-        st.dataframe(piv, use_container_width=True)
+with tab_ship:
+    st.header("🚚 出荷実績分析")
+    ship_f = apply_filters(df_ship_m, df_m)
+    
+    if not ship_f.empty:
+        # 集計粒度に応じたピボット
+        idx = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
+        if agg_level == "大分類": idx = ["大分類"]
+        elif agg_level == "中分類": idx = ["大分類", "中分類"]
+        elif agg_level == "小分類": idx = ["大分類", "中分類", "小分類"]
+        
+        pivot = ship_f.pivot_table(index=idx, columns='month_code', values='合計出荷数', aggfunc='sum').fillna(0)
+        st.subheader(f"月間出荷ピボット ({agg_level}単位)")
+        st.dataframe(pivot, use_container_width=True)
     else:
-        st.info("条件に一致する出荷データがありません")
+        st.info("条件に一致する出荷データがありません。")
 
-with tab2:
-    st.subheader("現在の在庫状況")
+with tab_inv:
+    st.header("📦 在庫状況分析")
+    # 在庫フィルタ設定
+    st.sidebar.markdown("---")
+    st.sidebar.header(":orange[在庫専用設定]")
+    show_zero = st.sidebar.checkbox("在庫0を表示しない", value=True)
+    
+    inv_f = apply_filters(df_inv, df_pack) # 在庫は常にPackマスタ基準
+    if show_zero: inv_f = inv_f[inv_f['在庫数(引当数を含む)'].astype(float) > 0]
+    
     if not inv_f.empty:
-        col1, col2 = st.columns([2, 1])
+        col1, col2 = st.columns([3, 2])
         with col1:
-            st.dataframe(inv_f[['倉庫ID','商品ID','商品名','在庫数(引当数を含む)','品質区分']].head(500))
+            st.subheader("在庫一覧")
+            display_cols = ['倉庫名', '商品ID', '商品名', '在庫数(引当数を含む)', '品質区分名', '大分類']
+            st.dataframe(inv_f[[c for c in display_cols if c in inv_f.columns]], use_container_width=True)
+        
         with col2:
+            st.subheader("在庫構成比")
             if '大分類' in inv_f.columns:
-                stock_sum = inv_f.groupby('大分類')['在庫数(引当数を含む)'].sum()
+                pie_data = inv_f.groupby('大分類')['在庫数(引当数を含む)'].sum()
                 fig, ax = plt.subplots()
-                ax.pie(stock_sum, labels=stock_sum.index, autopct='%1.1f%%', startangle=90)
+                ax.pie(pie_data, labels=pie_data.index, autopct='%1.1f%%', startangle=90)
                 st.pyplot(fig)
+    else:
+        st.info("条件に一致する在庫データがありません。")
+
+st.sidebar.success("✅ Supabase同期完了")
