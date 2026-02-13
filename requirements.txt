@@ -4,4 +4,6 @@ matplotlib
 japanize-matplotlib
 setuptools
 sqlalchemy
+psycopg2-binary
+
 
