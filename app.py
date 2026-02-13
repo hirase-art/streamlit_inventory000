@@ -1,159 +1,116 @@
 import streamlit as st
 import pandas as pd
-import logging
-import glob
+import numpy as np
 import matplotlib.pyplot as plt
 import japanize_matplotlib
-import numpy as np
-import matplotlib.gridspec as gridspec
 
 # --- ページ設定 ---
-st.set_page_config(layout="wide", page_title="在庫・出荷可視化アプリ")
-
-# --- ログ設定 ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    filename='app.log',
-    filemode='w'
-)
+st.set_page_config(layout="wide", page_title="在庫・出荷可視化システム")
 
 # --------------------------------------------------------------------------
-# 1. Supabase 接続設定
+# 1. 接続 & データ取得 (Supabase)
 # --------------------------------------------------------------------------
-try:
-    conn = st.connection("postgresql", type="sql")
-except Exception as e:
-    st.error(f"Supabase接続エラー: {e}")
+conn = st.connection("postgresql", type="sql")
 
-# --------------------------------------------------------------------------
-# 2. データ読み込み関数
-# --------------------------------------------------------------------------
+@st.cache_data(ttl=600)
+def load_supabase(table):
+    df = conn.query(f'SELECT * FROM "{table}";')
+    # 文字列として扱うべき列の変換
+    for col in ['商品ID', '倉庫ID', '業務区分ID', 'SET_ID', '品質区分ID']:
+        if col in df.columns:
+            df[col] = df[col].astype(str).replace('None', np.nan).replace('nan', np.nan)
+    return df
 
-@st.cache_data(ttl=3600)
-def load_data_from_supabase(table_name):
-    """Supabaseからデータを取得し、型変換を行う"""
+@st.cache_data
+def load_csv(path):
     try:
-        query = f'SELECT * FROM "{table_name}";'
-        df = conn.query(query)
-        # ID関連の列を文字列に変換 (CSV読み込み時の挙動を再現)
-        str_cols = ['商品ID', '倉庫ID', '業務区分ID', 'SET_ID', '品質区分ID']
-        for col in str_cols:
-            if col in df.columns:
-                df[col] = df[col].astype(str).replace('None', np.nan).replace('nan', np.nan)
-        return df
-    except Exception as e:
-        st.error(f"テーブル {table_name} の取得失敗: {e}")
+        return pd.read_csv(path, dtype={'商品ID': str, 'SET_ID': str})
+    except:
         return pd.DataFrame()
 
-@st.cache_data
-def load_single_csv(path, encoding='utf-8'):
-    """マスタ類（まだGitHubにあるもの）の読み込み"""
-    try:
-        return pd.read_csv(path, encoding=encoding, dtype={'商品ID': str, '倉庫ID': str, '業務区分ID': str, 'SET_ID': str})
-    except:
-        return None
-
-# 補助関数：棒グラフにラベルを追加
-def add_labels_to_stacked_bar(ax, data_df):
-    try:
-        bottom = pd.Series([0.0] * len(data_df), index=data_df.index)
-        for col in data_df.columns:
-            values = data_df[col].fillna(0)
-            y_pos = bottom + values / 2
-            for i, val in enumerate(values):
-                if val > (data_df.sum(axis=1).max() * 0.05): # 小さすぎる値は非表示
-                    ax.text(i, y_pos.iloc[i], f'{int(val)}', ha='center', va='center', fontsize=6, color='white', fontweight='bold')
-            bottom += values
-    except:
-        pass
-
-@st.cache_data
-def convert_df(df):
-    return df.to_csv(encoding='utf-8-sig').encode('utf-8-sig')
+# データ読み込み
+with st.spinner('データを同期中...'):
+    df_inv = load_supabase("在庫情報")   # 旧 CZ04003
+    df_ship_w = load_supabase("T_9x07") # 旧 T_9x07
+    df_ship_m = load_csv("T_9x30.csv")   # まだCSV
+    df_pack = load_csv("PACK_Classification.csv")
+    df_set = load_csv("SET_Class.csv")
 
 # --------------------------------------------------------------------------
-# 3. メイン処理
+# 2. サイドバー：共通・出荷情報フィルタ
 # --------------------------------------------------------------------------
+st.sidebar.header(":blue[🚚 共通・出荷フィルタ]")
+unit = st.sidebar.radio("集計単位:", ["Pack", "SET"], horizontal=True)
 
-st.title('📊 在庫・出荷データの可視化アプリ')
+# マスタの切り替え
+df_m = df_pack.copy() if unit == "Pack" else df_set.copy().rename(columns={'SET_ID':'商品ID','セット構成名称':'商品名'})
 
-# --- データの読み込み ---
-# マスタ類はGitHubから読み込み
-df1 = load_single_csv("T_9x30.csv", encoding='utf-8')
-df_pack_master = load_single_csv("PACK_Classification.csv", encoding='utf-8')
-df_set_master = load_single_csv("SET_Class.csv", encoding='utf-8')
+# 基本データのマージ
+ship_m_full = pd.merge(df_ship_m, df_m, on='商品ID', how='left') if not df_ship_m.empty else pd.DataFrame()
+ship_w_full = pd.merge(df_ship_w, df_m, on='商品ID', how='left') if not df_ship_w.empty else pd.DataFrame()
 
-# ★ 在庫と週間出荷は Supabase から直接取得 (GitHubのCSVは不要に！)
-with st.spinner('Supabaseから最新データを同期中...'):
-    df3 = load_data_from_supabase("在庫情報") # 元の CZ04003_*.csv
-    df5 = load_data_from_supabase("T_9x07")   # 元の T_9x07.csv
+# --- 検索・抽出機能の復活 ---
+search_id = st.sidebar.text_input("🔍 商品ID検索 (完全一致):").strip()
+search_name = st.sidebar.text_input("🔍 商品名検索 (曖昧):").strip()
 
-# --------------------------------------------------------------------------
-# 4. サイドバー・フィルタ（以前のロジックを完全復旧）
-# --------------------------------------------------------------------------
-st.sidebar.header(":blue[出荷情報フィルタ]")
-unit_selection = st.sidebar.radio("集計単位:", ["Pack", "SET"], horizontal=True)
-
-# マスタデータの切り替え
-if unit_selection == "Pack":
-    df_master_shipping = df_pack_master.copy() if df_pack_master is not None else pd.DataFrame()
-else:
-    df_master_shipping = df_set_master.copy().rename(columns={'SET_ID': '商品ID', 'セット構成名称': '商品名'}) if df_set_master is not None else pd.DataFrame()
-
-# 基本データフレームの作成
-base_df_monthly = pd.merge(df1, df_master_shipping, on='商品ID', how='left') if df1 is not None else pd.DataFrame()
-base_df_weekly = pd.merge(df5, df_master_shipping, on='商品ID', how='left') if not df5.empty else pd.DataFrame()
-
-# 共通フィルタ
-aggregation_level = st.sidebar.radio("集計粒度:", ["大分類", "中分類", "小分類", "商品ID"], index=3, horizontal=True)
-show_total = st.sidebar.radio("合計表示:", ["なし", "あり"], horizontal=True)
-
-# 絞り込み UI
-selected_daibunrui = st.sidebar.multiselect("大分類:", options=sorted(base_df_monthly['大分類'].dropna().unique().tolist()) if '大分類' in base_df_monthly.columns else [])
-product_name_search = st.sidebar.text_input("商品名検索:").strip()
+if '大分類' in df_m.columns:
+    sel_dai = st.sidebar.multiselect("大分類:", options=sorted(df_m['大分類'].dropna().unique()))
+    sel_chu = st.sidebar.multiselect("中分類:", options=sorted(df_m[df_m['大分類'].isin(sel_dai)]['中分類'].unique()) if sel_dai else [])
+    sel_sho = st.sidebar.multiselect("小分類:", options=sorted(df_m[df_m['中分類'].isin(sel_chu)]['小分類'].unique()) if sel_chu else [])
 
 # --------------------------------------------------------------------------
-# 5. タブ表示（出荷・在庫）
+# 3. サイドバー：在庫情報フィルタ (復活！)
 # --------------------------------------------------------------------------
-tab_shipping, tab_stock = st.tabs(["📝 出荷情報", "📊 在庫情報"])
+st.sidebar.markdown("---")
+st.sidebar.header(":orange[📦 在庫情報フィルタ]")
+sel_souko = st.sidebar.multiselect("倉庫指定:", options=sorted(df_inv['倉庫ID'].unique()) if not df_inv.empty else [])
+show_zero = st.sidebar.checkbox("在庫0を表示しない", value=True)
 
-# --- 出荷情報のタブ ---
-with tab_shipping:
-    st.header("🚚 出荷情報")
-    if not base_df_monthly.empty:
-        # 月間出荷のフィルタリングとピボット
-        df_m_filtered = base_df_monthly[base_df_monthly['大分類'].isin(selected_daibunrui)] if selected_daibunrui else base_df_monthly
-        if product_name_search:
-            df_m_filtered = df_m_filtered[df_m_filtered['商品名'].str.contains(product_name_search, na=False)]
+# --------------------------------------------------------------------------
+# 4. データフィルタリング処理
+# --------------------------------------------------------------------------
+def apply_filter(df):
+    if df.empty: return df
+    tmp = df.copy()
+    if search_id: tmp = tmp[tmp['商品ID'] == search_id]
+    if search_name: tmp = tmp[tmp['商品名'].str.contains(search_name, na=False)]
+    if '大分類' in tmp.columns and sel_dai: tmp = tmp[tmp['大分類'].isin(sel_dai)]
+    if '中分類' in tmp.columns and sel_chu: tmp = tmp[tmp['中分類'].isin(sel_chu)]
+    if '小分類' in tmp.columns and sel_sho: tmp = tmp[tmp['小分類'].isin(sel_sho)]
+    return tmp
 
-        # ピボットテーブル表示
-        pivot_m = df_m_filtered.pivot_table(index=["大分類", "商品ID", "商品名"], columns="month_code", values="合計出荷数", aggfunc="sum").fillna(0)
-        st.subheader("月間出荷数（直近12ヶ月）")
-        st.dataframe(pivot_m.tail(12))
+# 出荷データのフィルタ適用
+ship_m_f = apply_filter(ship_m_full)
+ship_w_f = apply_filter(ship_w_full)
 
-# --- 在庫情報のタブ ---
-with tab_stock:
-    st.header("📦 在庫情報")
-    if not df3.empty and df_pack_master is not None:
-        # 在庫データとマスタの結合
-        df3_master = pd.merge(df3, df_pack_master[['商品ID', '大分類', '中分類', '小分類']], on='商品ID', how='left')
-        
-        # フィルタ適用
-        df3_filtered = df3_master[df3_master['大分類'].isin(selected_daibunrui)] if selected_daibunrui else df3_master
-        
+# 在庫データのフィルタ適用（マスタ結合後）
+inv_full = pd.merge(df_inv, df_pack, on='商品ID', how='left') if not df_inv.empty else pd.DataFrame()
+inv_f = apply_filter(inv_full)
+if sel_souko: inv_f = inv_f[inv_f['倉庫ID'].isin(sel_souko)]
+if show_zero: inv_f = inv_f[inv_f['在庫数(引当数を含む)'] > 0]
+
+# --------------------------------------------------------------------------
+# 5. メイン表示部
+# --------------------------------------------------------------------------
+tab1, tab2 = st.tabs(["📝 出荷実績", "📊 在庫分析"])
+
+with tab1:
+    st.subheader("月間出荷実績 (ピボット)")
+    if not ship_m_f.empty:
+        piv = ship_m_f.pivot_table(index=['大分類','商品ID','商品名'], columns='month_code', values='合計出荷数', aggfunc='sum').fillna(0)
+        st.dataframe(piv, use_container_width=True)
+    else:
+        st.info("条件に一致する出荷データがありません")
+
+with tab2:
+    st.subheader("現在の在庫状況")
+    if not inv_f.empty:
         col1, col2 = st.columns([2, 1])
         with col1:
-            st.subheader("在庫プレビュー")
-            st.dataframe(df3_filtered.head(100))
-            st.download_button("在庫CSVダウンロード", data=convert_df(df3_filtered), file_name="inventory.csv")
-        
+            st.dataframe(inv_f[['倉庫ID','商品ID','商品名','在庫数(引当数を含む)','品質区分']].head(500))
         with col2:
-            st.subheader("在庫構成比（大分類別）")
-            if '大分類' in df3_filtered.columns:
-                stock_pie = df3_filtered.groupby('大分類')['在庫数(引当数を含む)'].sum()
+            if '大分類' in inv_f.columns:
+                stock_sum = inv_f.groupby('大分類')['在庫数(引当数を含む)'].sum()
                 fig, ax = plt.subplots()
-                ax.pie(stock_pie, labels=stock_pie.index, autopct='%1.1f%%')
+                ax.pie(stock_sum, labels=stock_sum.index, autopct='%1.1f%%', startangle=90)
                 st.pyplot(fig)
-
-st.success("Supabaseから最新データを取得し、フィルタを適用しました。")
