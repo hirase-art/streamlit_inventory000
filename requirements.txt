@@ -1,9 +1,10 @@
 streamlit
 pandas
-psycopg2-binary
+numpy
 sqlalchemy
-matplotlib
-japanize-matplotlib
+psycopg2-binary
+st-postgresql
+
 
 
 
