@@ -46,6 +46,7 @@ with st.spinner('最新データを取得中...'):
     df_m_ship = get_aggregated_shipments("monthly")
     df_w_ship = get_aggregated_shipments("weekly")
     df_inv = load_master("在庫情報")
+    st.write("📋 在庫情報の実際の列名:", df_inv.columns.tolist())
     df_pack = load_master("Pack_Classification")
     df_set = load_master("SET_Class")
 
@@ -148,5 +149,6 @@ with tab1:
 with tab2:
     st.subheader("現在の全在庫リスト")
     st.dataframe(pd.merge(df_m, df_inv, on='商品ID', how='inner'), use_container_width=True)
+
 
 
