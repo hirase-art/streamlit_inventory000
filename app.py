@@ -18,25 +18,25 @@ def load_master(table_name):
 @st.cache_data(ttl=300)
 def get_aggregated_shipments(period_type="monthly"):
     """
-    ★重要：SQL側で集計を済ませてから持ってくる
-    Python側で 6万行をこねくり回すのをやめ、集計済みの数百行だけを取得します。
+    SQL側で集計。
+    ::date を使って、文字列を日付型に変換してから集計します。
     """
     if period_type == "monthly":
-        # 月次集計SQL
+        # 月次集計： "出荷確定日"::date で日付型にキャスト
         query = """
         SELECT 
             "倉庫ID", "業務区分ID", "商品ID", 
-            to_char("出荷確定日", 'YYMM') as code, 
+            to_char("出荷確定日"::date, 'YYMM') as code, 
             SUM("出荷数") as "合計出荷数"
         FROM shipment_all
         GROUP BY 1, 2, 3, 4
         """
     else:
-        # 週次集計SQL (月曜始まり)
+        # 週次集計： 同様にキャスト
         query = """
         SELECT 
             "倉庫ID", "業務区分ID", "商品ID", 
-            to_char(date_trunc('week', "出荷確定日"), 'YYMMDD') || 'w' as code, 
+            to_char(date_trunc('week', "出荷確定日"::date), 'YYMMDD') || 'w' as code, 
             SUM("出荷数") as "合計出荷数"
         FROM shipment_all
         GROUP BY 1, 2, 3, 4
@@ -113,3 +113,4 @@ with tab2:
     inv_res = pd.merge(df_inv, df_pack[['商品ID', '大分類']], on='商品ID', how='left')
     if sel_dai: inv_res = inv_res[inv_res['大分類'].isin(sel_dai)]
     st.dataframe(inv_res, use_container_width=True)
+
