@@ -18,13 +18,13 @@ def load_supabase(table_name):
     query = f'SELECT * FROM "{table_name}";'
     df = conn.query(query)
     # ID列は文字列に固定。前後の空白を削除
-    str_cols = ['商品ID', '業務区分ID', '倉庫ID', 'SET_ID', '品質区分']
+    str_cols = ['商品ID', '業務区分ID', '倉庫ID', 'SET_ID', '品質区分', 'month_code', 'week_code']
     for col in str_cols:
         if col in df.columns:
             df[col] = df[col].astype(str).str.strip().replace(['nan', 'None', ''], np.nan)
     return df
 
-with st.spinner('最新データを同期中...'):
+with st.spinner('最新データを取得中...'):
     df_inv = load_supabase("在庫情報")
     df_ship_m = load_supabase("T_9x30")
     df_ship_w = load_supabase("T_9x07")
@@ -48,17 +48,18 @@ def add_labels_to_stacked_bar(ax, data_df):
 # 3. サイドバー構成
 # --------------------------------------------------------------------------
 st.sidebar.header("🔍 共通検索")
-# カンマ区切り対応ID検索
 search_id_input = st.sidebar.text_input("商品ID検索 (カンマ区切りで複数可):", placeholder="例: 2039, 2040").strip()
 search_name = st.sidebar.text_input("商品名検索 (あいまい):").strip()
 
-# 出荷用サイドバー
+# タブ定義
+tab_ship, tab_inv = st.tabs(["📝 出荷実績分析", "📊 在庫詳細分析"])
+
 st.sidebar.markdown("---")
 st.sidebar.header(":blue[🚚 出荷フィルタ]")
 ship_type = st.sidebar.radio("出荷種別:", ["全て", "卸出荷 (4)", "通販出荷 (7)"], horizontal=True)
 unit = st.sidebar.radio("集計単位:", ["Pack", "SET"], horizontal=True)
 
-# マスタ選択
+# マスタソースの決定
 df_m_source = df_pack if unit == "Pack" else df_set.rename(columns={'SET_ID': '商品ID', 'セット構成名称': '商品名'})
 
 agg_level = st.sidebar.radio("集計粒度:", ["大分類", "中分類", "小分類", "商品ID"], index=3, horizontal=True)
@@ -74,28 +75,41 @@ sho_opts = sorted(df_m_source[df_m_source['中分類'].isin(sel_chu)]['小分類
 sel_sho = st.sidebar.multiselect("小分類:", options=sho_opts)
 
 # --------------------------------------------------------------------------
-# 4. 共通フィルタロジック (桁数不一致対応版)
+# 4. 共通フィルタロジック (KeyError & ID検索強化版)
 # --------------------------------------------------------------------------
 def apply_filters(df, master):
     if df.empty: return df
     
-    # マスタと結合。suffixesを使って商品名の重複を回避
+    # 結合 (suffixesを指定)
     res = pd.merge(df, master[['商品ID', '大分類', '中分類', '小分類', '商品名']], on='商品ID', how='left', suffixes=('', '_m'))
     
-    # マスタにない場合の補完（ピボットで消えるのを防ぐ）
+    # マスタ情報の補完 (KeyError回避)
     for col in ['大分類', '中分類', '小分類']:
-        res[col] = res[col].fillna("(マスタ未登録)")
+        if col in res.columns:
+            res[col] = res[col].fillna("(マスタ未登録)")
+    
+    # 商品名の補完ロジック (KeyError: '商品名_m' の根本対策)
     if '商品名' in res.columns:
-        res['商品名'] = res['商品名'].fillna(res['商品名_m']).fillna("(名称不明)")
+        if '商品名_m' in res.columns:
+            res['商品名'] = res['商品名'].fillna(res['商品名_m'])
+    elif '商品名_m' in res.columns:
+        res = res.rename(columns={'商品名_m': '商品名'})
+    
+    if '商品名' in res.columns:
+        res['商品名'] = res['商品名'].fillna("(名称不明)")
+    else:
+        res['商品名'] = "(名称不明)"
 
-    # ★ID検索のロジック強化
+    # ★ID検索のロジック強化 (2039, 02039, 002039 すべてを網羅)
     if search_id_input:
-        # 入力をリスト化
         raw_ids = [i.strip() for i in search_id_input.split(',') if i.strip()]
-        # 前ゼロ埋め(6桁)したものも検索対象に加える
-        padded_ids = [i.zfill(6) for i in raw_ids if i.isdigit()]
-        target_ids = list(set(raw_ids + padded_ids))
-        res = res[res['商品ID'].isin(target_ids)]
+        target_ids = set(raw_ids)
+        for rid in raw_ids:
+            if rid.isdigit():
+                # さまざまな桁数でのパディングを生成して追加
+                for length in range(1, 10):
+                    target_ids.add(rid.zfill(length))
+        res = res[res['商品ID'].isin(list(target_ids))]
             
     if search_name: res = res[res['商品名'].str.contains(search_name, na=False)]
     if sel_dai: res = res[res['大分類'].isin(sel_dai)]
@@ -106,27 +120,24 @@ def apply_filters(df, master):
 # --------------------------------------------------------------------------
 # 5. メイン画面
 # --------------------------------------------------------------------------
-tab_ship, tab_inv = st.tabs(["📝 出荷実績分析", "📊 在庫詳細分析"])
-
 with tab_ship:
     st.header(f"🚚 出荷実績分析 ({ship_type})")
     
     def get_ship_pivot(target_df, code_col, period):
+        if target_df.empty: return pd.DataFrame(), pd.DataFrame()
         f_df = apply_filters(target_df, df_m_source)
-        # 業務区分フィルタ
         if ship_type == "卸出荷 (4)": f_df = f_df[f_df['業務区分ID'] == '4']
         elif ship_type == "通販出荷 (7)": f_df = f_df[f_df['業務区分ID'] == '7']
         
         if f_df.empty: return pd.DataFrame(), pd.DataFrame()
         
-        # 集計インデックス決定
         idx_cols = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
         current_idx = idx_cols[:["大分類", "中分類", "小分類", "商品ID"].index(agg_level) + 1]
         if agg_level == "商品ID": current_idx = ["大分類", "中分類", "小分類", "商品ID", "商品名"]
         
-        # ピボット作成。dropna=Falseで(マスタ未登録)を表示
+        # 集計
         piv = f_df.pivot_table(index=current_idx, columns=code_col, values='合計出荷数', aggfunc='sum', dropna=False).fillna(0)
-        piv = piv.iloc[:, -period:] # 指定期間のみ
+        piv = piv.iloc[:, -period:]
         
         if show_total == "あり":
             piv['合計'] = piv.sum(axis=1)
@@ -135,7 +146,6 @@ with tab_ship:
             piv = pd.concat([piv, total_row])
         return piv, f_df
 
-    # 月間推移
     st.subheader("🗓️ 月間推移")
     p_m, f_m = get_ship_pivot(df_ship_m, 'month_code', num_months)
     if not p_m.empty:
@@ -153,7 +163,6 @@ with tab_ship:
     else:
         st.info("条件に一致する月間出荷データがありません。")
 
-    # 週間推移 (確実に表示)
     st.markdown("---")
     st.subheader("🗓️ 週間推移")
     p_w, f_w = get_ship_pivot(df_ship_w, 'week_code', num_weeks)
@@ -162,11 +171,10 @@ with tab_ship:
     else:
         st.info("条件に一致する週間出荷データがありません。")
 
-# 在庫タブ (フィルタの仕組みを共通化)
 with tab_inv:
     st.header("📦 在庫詳細分析")
     inv_f = apply_filters(df_inv, df_pack)
-    # 在庫専用フィルタ
+    
     st.sidebar.markdown("---")
     st.sidebar.header(":orange[📦 在庫フィルタ]")
     sel_soko = st.sidebar.multiselect("倉庫絞り込み:", options=sorted(df_inv['倉庫名'].unique()) if '倉庫名' in df_inv.columns else [])
@@ -178,7 +186,8 @@ with tab_inv:
     
     if not inv_f.empty:
         c1, c2 = st.columns([3, 2])
-        c1.dataframe(inv_f[['倉庫名', '商品ID', '商品名', '有効在庫', '品質区分名', '大分類']], use_container_width=True)
+        disp_cols = ['倉庫名', '商品ID', '商品名', '有効在庫', '品質区分名', '大分類']
+        c1.dataframe(inv_f[[c for c in disp_cols if c in inv_f.columns]], use_container_width=True)
         with c2:
             if '大分類' in inv_f.columns:
                 pie = inv_f.groupby('大分類')['有効在庫'].sum()
