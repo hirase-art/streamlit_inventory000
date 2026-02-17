@@ -17,12 +17,8 @@ def load_master(table_name):
 
 @st.cache_data(ttl=300)
 def get_aggregated_shipments(period_type="monthly"):
-    """
-    SQL側で集計。
-    ::date を使って、文字列を日付型に変換してから集計します。
-    """
     if period_type == "monthly":
-        # 月次集計： "出荷確定日"::date で日付型にキャスト
+        # ★ as code と命名
         query = """
         SELECT 
             "倉庫ID", "業務区分ID", "商品ID", 
@@ -32,7 +28,7 @@ def get_aggregated_shipments(period_type="monthly"):
         GROUP BY 1, 2, 3, 4
         """
     else:
-        # 週次集計： 同様にキャスト
+        # ★ こちらも as code と命名
         query = """
         SELECT 
             "倉庫ID", "業務区分ID", "商品ID", 
@@ -42,7 +38,6 @@ def get_aggregated_shipments(period_type="monthly"):
         GROUP BY 1, 2, 3, 4
         """
     return conn.query(query)
-
 # データロード
 with st.spinner('データを同期中...'):
     df_m_ship = get_aggregated_shipments("monthly")
@@ -113,4 +108,5 @@ with tab2:
     inv_res = pd.merge(df_inv, df_pack[['商品ID', '大分類']], on='商品ID', how='left')
     if sel_dai: inv_res = inv_res[inv_res['大分類'].isin(sel_dai)]
     st.dataframe(inv_res, use_container_width=True)
+
 
