@@ -69,7 +69,7 @@ show_total = st.sidebar.radio("合計表示:", ["なし", "あり"], horizontal=
 
 # 期間スライダーの復旧
 num_months = st.sidebar.slider("月間表示期間（ヶ月）", 3, 26, 12)
-num_weeks = st.sidebar.slider("週間表示期間（週）", 3, 20, 12)
+num_weeks = st.sidebar.slider("週間表示期間（週）", 3, 50, 12)
 
 # 分類連動フィルタ
 sel_dai = st.sidebar.multiselect("大分類:", options=sorted(df_m['大分類'].dropna().unique()))
@@ -167,3 +167,4 @@ with tab_inv:
             fig, ax = plt.subplots()
             ax.pie(pie_data, labels=pie_data.index, autopct='%1.1f%%', startangle=90)
             st.pyplot(fig)
+
