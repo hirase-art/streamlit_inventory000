@@ -39,6 +39,10 @@ def get_aggregated_shipments(period_type="monthly"):
     return conn.query(query)
 # データロード
 with st.spinner('最新データを取得中...'):
+    # 👇 ここにデバッグ用の3行を追加します！
+    st.write("🔍 デバッグ中: テーブル接続を確認します...")
+    df_debug = conn.query('SELECT * FROM "shipment_all" LIMIT 1;')
+    st.write("✅ 成功！DB内の実際のカラム名:", df_debug.columns.tolist())
     df_m_ship = get_aggregated_shipments("monthly")
     df_w_ship = get_aggregated_shipments("weekly")
     df_inv = load_master("在庫情報")
@@ -144,4 +148,5 @@ with tab1:
 with tab2:
     st.subheader("現在の全在庫リスト")
     st.dataframe(pd.merge(df_m, df_inv, on='商品ID', how='inner'), use_container_width=True)
+
 
