@@ -14,19 +14,29 @@ def load_master(table_name):
 
 @st.cache_data(ttl=300)
 def get_aggregated_shipments(period_type="monthly"):
-    """SQL側で集計。::date キャスト付き"""
+    """
+    テーブル名と列名を "" で囲み、
+    かつ空文字が入っていてもエラーにならないように NULLIF を追加しました。
+    """
     if period_type == "monthly":
         query = """
-        SELECT "商品ID", to_char("出荷確定日"::date, 'YYMM') as code, SUM("出荷数") as "qty"
-        FROM shipment_all GROUP BY 1, 2 ORDER BY 2 DESC
+        SELECT 
+            "商品ID", 
+            to_char(NULLIF("出荷確定日", '')::date, 'YYMM') as code, 
+            SUM("出荷数") as "qty"
+        FROM "shipment_all"
+        GROUP BY 1, 2
         """
     else:
         query = """
-        SELECT "商品ID", to_char(date_trunc('week', "出荷確定日"::date), 'YYMMDD') || 'w' as code, SUM("出荷数") as "qty"
-        FROM shipment_all GROUP BY 1, 2 ORDER BY 2 DESC
+        SELECT 
+            "商品ID", 
+            to_char(date_trunc('week', NULLIF("出荷確定日", '')::date), 'YYMMDD') || 'w' as code, 
+            SUM("出荷数") as "qty"
+        FROM "shipment_all"
+        GROUP BY 1, 2
         """
     return conn.query(query)
-
 # データロード
 with st.spinner('最新データを取得中...'):
     df_m_ship = get_aggregated_shipments("monthly")
@@ -134,3 +144,4 @@ with tab1:
 with tab2:
     st.subheader("現在の全在庫リスト")
     st.dataframe(pd.merge(df_m, df_inv, on='商品ID', how='inner'), use_container_width=True)
+
