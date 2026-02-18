@@ -9,7 +9,7 @@ st.set_page_config(layout="wide", page_title="在庫・出荷分析システム 
 conn = st.connection("postgresql", type="sql")
 
 def clean_column_names(df):
-    """列名から不要な記号を取り除く関数"""
+    """列名から不要な記号を取り除く"""
     df.columns = df.columns.str.strip().str.replace('"', '').str.replace(' ', '')
     return df
 
@@ -20,7 +20,7 @@ def load_master(table_name):
 
 @st.cache_data(ttl=300)
 def get_aggregated_shipments(period_type="monthly"):
-    """インデックスを効かせた高速集計クエリ"""
+    """インデックスを効かせた高速集計"""
     if period_type == "monthly":
         query = 'SELECT "商品ID", to_char(NULLIF("出荷確定日", \'\')::date, \'YYMM\') as code, SUM("出荷数") as "qty" FROM "shipment_all" GROUP BY 1, 2'
     else:
@@ -33,28 +33,33 @@ with st.spinner('最新データを取得中...'):
     df_m_ship = get_aggregated_shipments("monthly")
     df_w_ship = get_aggregated_shipments("weekly")
     
-    # 在庫情報の読み込みとカラム名強制上書き（PDFの46番目 = 13番目の要素に対応）
+    # 在庫情報の読み込みと列名の強制統一
     df_inv = load_master("在庫情報")
+    # PDFの46番目（13番目の要素）を「在庫数」に固定
     df_inv.columns = [
         '在庫日', '倉庫名', 'ブロックIP', 'ブロック名', 'ロケ', '商品ID', 'バーコード', 
-        '商品名', 'ロット', '有効期限', '品質区分ID', '品質区分名', '在庫数', # 13番目
+        '商品名', 'ロット', '有効期限', '品質区分ID', '品質区分名', '在庫数', 
         '引当数', 'ロケ引当条件', 'ロケ業務区分', '取置取引先', '取置取引先名', '状況'
     ] + [f"col_{i}" for i in range(len(df_inv.columns) - 19)]
 
     df_pack = load_master("Pack_Classification")
     df_set = load_master("SET_Class")
 
-# ★ここが重要：使用する列名を「在庫数」に統一
+# ★重要：使用する列名を「在庫数」に完全一致させます
 TARGET_COL = "在庫数"
 
 # --- 2. サイドバー：フィルタ機能 ---
 st.sidebar.header("🔍 絞り込み条件")
-
 unit = st.sidebar.radio("集計単位:", ["Pack", "SET"], horizontal=True)
 if unit == "Pack":
     df_m = df_pack.copy()
 else:
-    df_m = df_set.rename(columns={'SET_ID': '商品ID', 'セット構成名称': '商品名'}).copy()
+    # PDFのソースに基づき SET_ID ではなく SETID の可能性も考慮して修正
+    df_m = df_set.copy()
+    if 'SETID' in df_m.columns:
+        df_m = df_m.rename(columns={'SETID': '商品ID', 'セット構成名称': '商品名'})
+    elif 'SET_ID' in df_m.columns:
+        df_m = df_m.rename(columns={'SET_ID': '商品ID', 'セット構成名称': '商品名'})
 
 dai_list = ["すべて"] + sorted(df_m['大分類'].dropna().unique().tolist())
 sel_dai = st.sidebar.selectbox("大分類:", dai_list)
@@ -66,31 +71,28 @@ search_name = st.sidebar.text_input("商品名検索:")
 show_limit = st.sidebar.slider("表示期間 (過去いくつ分):", 4, 24, 12)
 avg_period = st.sidebar.slider("予測に使う期間 (直近何ヶ月/週):", 1, 6, 3)
 
-# --- 3. ロジック関数：分析・予測テーブル作成 ---
+# --- 3. 分析テーブル作成 ---
 def display_analysis_table(df_ship, master, inv, title, period_label):
     if df_ship.empty: return
     m_filtered = master.copy()
     
+    # 型の統一
     m_filtered['商品ID'] = m_filtered['商品ID'].astype(str)
     inv['商品ID'] = inv['商品ID'].astype(str)
     df_ship['商品ID'] = df_ship['商品ID'].astype(str)
 
-    # 結合
+    # 結合 (TARGET_COL="在庫数" を使用)
     res = pd.merge(m_filtered, inv[['商品ID', TARGET_COL]], on='商品ID', how='left')
     piv = df_ship.pivot_table(index="商品ID", columns='code', values='qty', aggfunc='sum').fillna(0)
     res = pd.merge(res, piv, on='商品ID', how='left').fillna(0)
 
-    # 予測ロジック
+    # 予測計算
     recent_cols = piv.columns[:avg_period]
     res['平均出荷'] = res[recent_cols].mean(axis=1).round(1)
     res['残り期間'] = np.where(res['平均出荷'] > 0, (res[TARGET_COL] / res['平均出荷']).round(1), np.inf)
 
-    # トレンドデータ
-    trend_cols = piv.columns[:show_limit][::-1]
-    res['トレンド'] = res[trend_cols].values.tolist()
-
-    # 表示列
-    base_cols = ["大分類", "商品ID", "商品名", TARGET_COL, "平均出荷", "残り期間", "トレンド"]
+    # 表示列の整理
+    base_cols = ["大分類", "商品ID", "商品名", TARGET_COL, "平均出荷", "残り期間"]
     display_df = res[base_cols + list(piv.columns[:show_limit])]
 
     st.subheader(title)
@@ -99,7 +101,6 @@ def display_analysis_table(df_ship, master, inv, title, period_label):
         use_container_width=True,
         hide_index=True,
         column_config={
-            "トレンド": st.column_config.line_chart_column("出荷推移", y_min=0),
             TARGET_COL: st.column_config.NumberColumn("在庫数", format="%d"),
             "残り期間": st.column_config.ProgressColumn(f"充足({period_label})", min_value=0, max_value=12, format="%.1f"),
             "商品ID": st.column_config.TextColumn("ID"),
