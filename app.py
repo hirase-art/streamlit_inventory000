@@ -33,9 +33,23 @@ def get_aggregated_shipments(period_type="monthly"):
 with st.spinner('最新データを取得中...'):
     df_m_ship = get_aggregated_shipments("monthly")
     df_w_ship = get_aggregated_shipments("weekly")
+    
+    # 在庫情報の読み込み
     df_inv = load_master("在庫情報")
+    
+    # 【最重要】列名を強制的に固定し、特殊な記号を抹消します
+    # pdfの46番目にある名前を「在庫数」という短い名前に上書きします
+    df_inv.columns = [
+        '在庫日', '倉庫名', 'ブロックIP', 'ブロック名', 'ロケ', '商品ID', 'バーコード', 
+        '商品名', 'ロット', '有効期限', '品質区分ID', '品質区分名', '在庫数', # ← 46番目をここにする
+        '引当数', 'ロケ引当条件', 'ロケ業務区分', '取置取引先', '取置取引先名', '状況'
+    ] + [f"col_{i}" for i in range(len(df_inv.columns) - 19)] # 残りの列も安全に処理
+
     df_pack = load_master("Pack_Classification")
     df_set = load_master("SET_Class")
+
+# 以降のコードでは "在庫数" という名前でアクセスしてください
+TARGET_COL = "在庫数"
 
 # --- 以降の処理で使う「列名」をクリーンな名前に指定 ---
 # 「在庫数(引当数を含む】!!」などはクリーニング関数により「在庫数引当数を含む」になっています
@@ -131,6 +145,7 @@ with tab1:
 with tab2:
     st.subheader("現在の全在庫リスト")
     st.dataframe(pd.merge(df_m, df_inv, on='商品ID', how='inner'), use_container_width=True)
+
 
 
 
