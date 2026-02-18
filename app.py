@@ -100,7 +100,7 @@ def display_analysis_table(df_ship, master, inv, title, period_label):
     piv = df_ship.pivot_table(index="商品ID", columns='code', values='qty', aggfunc='sum').fillna(0)
     
     # 3. マスターと在庫、出荷実績を統合
-    res = pd.merge(m_filtered[['商品ID', '商品名', '大分類', '中分類']], inv[['商品ID', '実在庫']], on='商品ID', how='left')
+    res = pd.merge(m_filtered[['商品ID', '商品名', '大分類', '中分類']], inv[['商品ID', '在庫数 (引当数を含む)']], on='商品ID', how='left')
     res = pd.merge(res, piv, on='商品ID', how='left').fillna(0)
 
     # 4. 在庫切れ予測ロジック
@@ -109,14 +109,14 @@ def display_analysis_table(df_ship, master, inv, title, period_label):
     res['平均出荷'] = res[recent_cols].mean(axis=1).round(1)
     
     # 残り期間の計算 (0除算回避)
-    res['残り期間'] = np.where(res['平均出荷'] > 0, (res['実在庫'] / res['平均出荷']).round(1), np.inf)
+    res['残り期間'] = np.where(res['平均出荷'] > 0, (res['在庫数 (引当数を含む)'] / res['平均出荷']).round(1), np.inf)
 
     # 5. トレンド用のリスト作成 (最新から過去へ並んでいるので反転させて時系列にする)
     trend_cols = piv.columns[:show_limit][::-1]
     res['トレンド'] = res[trend_cols].values.tolist()
 
     # 表示列の整理
-    base_cols = ["大分類", "商品ID", "商品名", "実在庫", "平均出荷", "残り期間", "トレンド"]
+    base_cols = ["大分類", "商品ID", "商品名", "在庫数 (引当数を含む)", "平均出荷", "残り期間", "トレンド"]
     display_df = res[base_cols + list(piv.columns[:show_limit])]
 
     # 6. 表示 (column_config で見た目を整える)
@@ -127,7 +127,7 @@ def display_analysis_table(df_ship, master, inv, title, period_label):
         hide_index=True,
         column_config={
             "トレンド": st.column_config.line_chart_column("出荷推移", y_min=0),
-            "実在庫": st.column_config.NumberColumn("在庫数", format="%d"),
+            "在庫数 (引当数を含む)": st.column_config.NumberColumn("在庫数", format="%d"),
             "平均出荷": st.column_config.NumberColumn(f"平均({avg_period}{period_label})"),
             "残り期間": st.column_config.ProgressColumn(
                 f"在庫充足({period_label})", 
@@ -149,6 +149,7 @@ with tab1:
 with tab2:
     st.subheader("現在の全在庫リスト")
     st.dataframe(pd.merge(df_m, df_inv, on='商品ID', how='inner'), use_container_width=True)
+
 
 
 
