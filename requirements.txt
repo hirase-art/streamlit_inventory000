@@ -3,7 +3,7 @@ pandas
 numpy
 sqlalchemy
 psycopg2-binary
-st-postgresql
+
 
 
 
