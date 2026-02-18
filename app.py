@@ -8,47 +8,38 @@ st.set_page_config(layout="wide", page_title="在庫・出荷分析システム 
 # --- 1. データベース接続 & キャッシュ ---
 conn = st.connection("postgresql", type="sql")
 
+def clean_column_names(df):
+    """列名から引用符、スペース、特殊な括弧などを取り除く関数"""
+    df.columns = df.columns.str.strip().str.replace('"', '').str.replace('“', '').str.replace('”', '').str.replace(' ', '')
+    # 特殊記号 】!! などの対策
+    df.columns = df.columns.str.replace('】!!', ')').str.replace('】', ')').str.replace('(', '').str.replace(')', '')
+    return df
+
 @st.cache_data(ttl=600)
 def load_master(table_name):
-    return conn.query(f'SELECT * FROM "{table_name}";')
+    df = conn.query(f'SELECT * FROM "{table_name}";')
+    return clean_column_names(df)
 
 @st.cache_data(ttl=300)
 def get_aggregated_shipments(period_type="monthly"):
-    """
-    テーブル名と列名を "" で囲み、
-    かつ空文字が入っていてもエラーにならないように NULLIF を追加しました。
-    """
     if period_type == "monthly":
-        query = """
-        SELECT 
-            "商品ID", 
-            to_char(NULLIF("出荷確定日", '')::date, 'YYMM') as code, 
-            SUM("出荷数") as "qty"
-        FROM "shipment_all"
-        GROUP BY 1, 2
-        """
+        query = 'SELECT "商品ID", to_char(NULLIF("出荷確定日", \'\')::date, \'YYMM\') as code, SUM("出荷数") as "qty" FROM "shipment_all" GROUP BY 1, 2'
     else:
-        query = """
-        SELECT 
-            "商品ID", 
-            to_char(date_trunc('week', NULLIF("出荷確定日", '')::date), 'YYMMDD') || 'w' as code, 
-            SUM("出荷数") as "qty"
-        FROM "shipment_all"
-        GROUP BY 1, 2
-        """
-    return conn.query(query)
+        query = 'SELECT "商品ID", to_char(date_trunc(\'week\', NULLIF("出荷確定日", \'\')::date), \'YYMMDD\') || \'w\' as code, SUM("出荷数") as "qty" FROM "shipment_all" GROUP BY 1, 2'
+    df = conn.query(query)
+    return clean_column_names(df)
+
 # データロード
 with st.spinner('最新データを取得中...'):
-    # 👇 ここにデバッグ用の3行を追加します！
-    st.write("🔍 デバッグ中: テーブル接続を確認します...")
-    df_debug = conn.query('SELECT * FROM "shipment_all" LIMIT 1;')
-    st.write("✅ 成功！DB内の実際のカラム名:", df_debug.columns.tolist())
     df_m_ship = get_aggregated_shipments("monthly")
     df_w_ship = get_aggregated_shipments("weekly")
     df_inv = load_master("在庫情報")
-    st.write("📋 在庫情報の実際の列名:", df_inv.columns.tolist())
     df_pack = load_master("Pack_Classification")
     df_set = load_master("SET_Class")
+
+# --- 以降の処理で使う「列名」をクリーンな名前に指定 ---
+# 「在庫数(引当数を含む】!!」などはクリーニング関数により「在庫数引当数を含む」になっています
+TARGET_COL = "在庫数引当数を含む"
 
 # --- 2. サイドバー：シャープなフィルタ機能 ---
 st.sidebar.header("🔍 絞り込み条件")
@@ -81,35 +72,26 @@ show_limit = st.sidebar.slider("表示期間 (過去いくつ分):", 4, 24, 12)
 avg_period = st.sidebar.slider("予測に使う期間 (直近何ヶ月/週):", 1, 6, 3)
 
 # --- 3. ロジック関数：分析・予測テーブル作成 ---
+TARGET_COL = "在庫数引当数を含む"
+
 def display_analysis_table(df_ship, master, inv, title, period_label):
     if df_ship.empty: return
-
-    # 1. フィルタ適用 (マスターに対して)
     m_filtered = master.copy()
-    if search_id:
-        ids = [i.strip().zfill(8) if i.strip().isdigit() else i.strip() for i in search_id.split(',')]
-        m_filtered = m_filtered[m_filtered['商品ID'].isin(ids)]
-    if search_name:
-        m_filtered = m_filtered[m_filtered['商品名'].str.contains(search_name, na=False)]
     
-    if m_filtered.empty:
-        st.info(f"{title}: 該当データがありません")
-        return
+    # IDの型を合わせる
+    m_filtered['商品ID'] = m_filtered['商品ID'].astype(str)
+    inv['商品ID'] = inv['商品ID'].astype(str)
+    df_ship['商品ID'] = df_ship['商品ID'].astype(str)
 
-    # 2. 出荷実績をピボット
+    # 結合 (TARGET_COL を使用)
+    res = pd.merge(m_filtered, inv[['商品ID', TARGET_COL]], on='商品ID', how='left')
     piv = df_ship.pivot_table(index="商品ID", columns='code', values='qty', aggfunc='sum').fillna(0)
-    
-    # 3. マスターと在庫、出荷実績を統合
-    res = pd.merge(m_filtered[['商品ID', '商品名', '大分類', '中分類']], inv[['商品ID', '在庫数 (引当数を含む)']], on='商品ID', how='left')
     res = pd.merge(res, piv, on='商品ID', how='left').fillna(0)
 
-    # 4. 在庫切れ予測ロジック
-    # 直近N期間の平均出荷を算出
+    # 在庫切れ予測ロジック (TARGET_COL を使用)
     recent_cols = piv.columns[:avg_period]
     res['平均出荷'] = res[recent_cols].mean(axis=1).round(1)
-    
-    # 残り期間の計算 (0除算回避)
-    res['残り期間'] = np.where(res['平均出荷'] > 0, (res['在庫数 (引当数を含む)'] / res['平均出荷']).round(1), np.inf)
+    res['残り期間'] = np.where(res['平均出荷'] > 0, (res[TARGET_COL] / res['平均出荷']).round(1), np.inf)
 
     # 5. トレンド用のリスト作成 (最新から過去へ並んでいるので反転させて時系列にする)
     trend_cols = piv.columns[:show_limit][::-1]
@@ -149,6 +131,7 @@ with tab1:
 with tab2:
     st.subheader("現在の全在庫リスト")
     st.dataframe(pd.merge(df_m, df_inv, on='商品ID', how='inner'), use_container_width=True)
+
 
 
 
