@@ -10,7 +10,7 @@ st.set_page_config(layout="wide", page_title="在庫・出荷分析システム 
 conn = st.connection("postgresql", type="sql")
 
 def clean_column_names(df):
-    """列名を整え、商品IDの型と0埋めを統一する"""
+    """列名を整え、商品IDの型と0埋めを統一する共通関数"""
     df.columns = df.columns.str.strip().str.replace('"', '').str.replace(' ', '')
     if '商品ID' in df.columns:
         df['商品ID'] = df['商品ID'].astype(str).str.lstrip('0')
@@ -32,8 +32,15 @@ def get_aggregated_shipments(period_type="monthly"):
 
 @st.cache_data(ttl=300)
 def get_incoming_summary():
-    """T_4001から入荷予定数と、最も近い入荷予定日を取得"""
-    query = 'SELECT "商品ID", SUM("予定数") as "入荷予定合計", MIN("入荷予定日"::date) as "次回入荷日" FROM "T_4001" GROUP BY 1'
+    """【修正ポイント】bigint型の日付をdate型に安全に変換して集計"""
+    query = """
+    SELECT 
+        "商品ID", 
+        SUM("予定数") as "入荷予定合計", 
+        MIN(to_date("入荷予定日"::text, 'YYYYMMDD')) as "次回入荷日" 
+    FROM "T_4001" 
+    GROUP BY 1
+    """
     df = conn.query(query)
     return clean_column_names(df)
 
@@ -45,28 +52,31 @@ with st.spinner('未来の在庫ギャップを計算中...'):
     
     # 在庫データの取得と集計
     df_inv_raw = load_master("在庫情報")
+    # image_6938bd.png の並び順に基づき列名を定義
     df_inv_raw.columns = [
         '在庫日', '倉庫ID', '倉庫名', 'ブロックID', 'ブロック名', 'ロケ', '商品ID', 
         'バーコード', '商品名', 'ロット', '有効期限', '品質区分ID', '品質区分名', '在庫数引当含', '引当数'
     ] + [f"col_{i}" for i in range(len(df_inv_raw.columns) - 15)]
     
+    # 利用可能在庫（現在庫）の算出
     df_inv_raw['在庫数引当含'] = pd.to_numeric(df_inv_raw['在庫数引当含'], errors='coerce').fillna(0)
     df_inv_raw['引当数'] = pd.to_numeric(df_inv_raw['引当数'], errors='coerce').fillna(0)
     df_inv_raw['利用可能在庫'] = df_inv_raw['在庫数引当含'] - df_inv_raw['引当数']
     df_inv_raw['商品ID'] = df_inv_raw['商品ID'].astype(str).str.lstrip('0')
     
+    # 良品のみを対象に倉庫別集計
     df_inv_filtered = df_inv_raw[df_inv_raw['品質区分ID'].astype(str).isin(['1', '2'])]
-    
     inv_summary = df_inv_filtered.pivot_table(
         index='商品ID', columns='倉庫ID', values='利用可能在庫', aggfunc='sum'
     ).fillna(0)
     
+    # 数値と文字列の両方のIDに対応
     rename_map = {7: '大阪', 8: '千葉', '7': '大阪', '8': '千葉'}
     inv_summary = inv_summary.rename(columns=rename_map)
     for col in ['大阪', '千葉']:
         if col not in inv_summary.columns: inv_summary[col] = 0
             
-    inv_summary['現在庫'] = inv_summary['大阪'] + inv_summary['千葉']
+    inv_summary['現在庫合計'] = inv_summary['大阪'] + inv_summary['千葉']
     df_inv_final = inv_summary.reset_index()
     
     df_pack = load_master("Pack_Classification")
@@ -110,12 +120,12 @@ def display_analysis_table(df_ship, master, inv, incoming, title, period_label):
         st.info(f"{title}: 該当なし")
         return
 
-    # 実績ピボット
+    # 実績ピボット（最新順）
     piv = df_ship.pivot_table(index="商品ID", columns='code', values='qty', aggfunc='sum').fillna(0)
     piv = piv[sorted(piv.columns, reverse=True)]
     
-    # 結合
-    res = pd.merge(m_filtered, inv[['商品ID', '千葉', '大阪', '現在庫']], on='商品ID', how='left').fillna(0)
+    # 結合（在庫 + 入荷予定）
+    res = pd.merge(m_filtered, inv[['商品ID', '千葉', '大阪', '現在庫合計']], on='商品ID', how='left').fillna(0)
     res = pd.merge(res, incoming[['商品ID', '入荷予定合計', '次回入荷日']], on='商品ID', how='left')
     res = pd.merge(res, piv, on='商品ID', how='left').fillna(0)
 
@@ -123,25 +133,26 @@ def display_analysis_table(df_ship, master, inv, incoming, title, period_label):
     recent_cols = piv.columns[:avg_period]
     res['平均出荷'] = res[recent_cols].mean(axis=1).round(1)
     
-    # 1. 現在充足
-    res['現在充足'] = np.where(res['平均出荷'] > 0, (res['現在庫'] / res['平均出荷']).round(1), np.inf)
+    # 1. 現在の充足期間
+    res['現在充足'] = np.where(res['平均出荷'] > 0, (res['現在庫合計'] / res['平均出荷']).round(1), np.inf)
     
-    # 2. 将来充足 (現在庫 + 入荷予定)
-    res['予定込充足'] = np.where(res['平均出荷'] > 0, ((res['現在庫'] + res['入荷予定合計'].fillna(0)) / res['平均出荷']).round(1), np.inf)
+    # 2. 入荷予定を加味した充足期間
+    res['予定込充足'] = np.where(res['平均出荷'] > 0, ((res['現在庫合計'] + res['入荷予定合計'].fillna(0)) / res['平均出荷']).round(1), np.inf)
 
-    # 3. 欠品リスク判定 (魔の空白期間)
-    # 現在庫が尽きるまでの日数
-    res['在庫終了日数'] = np.where(res['平均出荷'] > 0, (res['現在庫'] / (res['平均出荷'] / (30 if period_label=="ヶ月" else 7))), 999)
+    # 3. 欠品リスク判定（間に合うかどうかのロジック）
+    # 現在庫が尽きるまでの推定日数
+    days_per_period = 30 if period_label == "ヶ月" else 7
+    res['在庫終了日数'] = np.where(res['平均出荷'] > 0, (res['現在庫合計'] / (res['平均出荷'] / days_per_period)), 999)
     
     # 今日から次回入荷日までの日数
     res['次回入荷日'] = pd.to_datetime(res['次回入荷日'])
     res['入荷待ち日数'] = (res['次回入荷日'] - datetime.now()).dt.days.fillna(0)
     
-    # 判定ロジック
     def judge_risk(row):
-        if row['平均出荷'] == 0: return "安定"
-        if row['現在充足'] >= 1.0: return "安全"
+        if row['平均出荷'] == 0: return "動向なし"
+        if row['現在充足'] >= 1.2: return "安全"
         if row['入荷予定合計'] == 0: return "要発注"
+        # ⚠️最大のポイント：在庫が切れる日が入荷予定日より前ならアウト
         if row['在庫終了日数'] < row['入荷待ち日数']: return "⚠️間に合わない"
         return "入荷待ち"
 
@@ -151,9 +162,9 @@ def display_analysis_table(df_ship, master, inv, incoming, title, period_label):
     trend_cols = piv.columns[:show_limit][::-1]
     res['トレンド'] = res[trend_cols].values.tolist()
 
-    # 表示列
+    # 表示列の整理（SyntaxError修正済み）
     base_cols = [
-        "判定", "商品ID", "商品名", "千葉", "大阪", "現在庫", 
+        "判定", "商品ID", "商品名", "千葉", "大阪", "現在庫合計", 
         "現在充足", "入荷予定合計", "予定込充足", "トレンド"
     ]
     display_df = res[base_cols + list(piv.columns[:show_limit])]
@@ -168,7 +179,6 @@ def display_analysis_table(df_ship, master, inv, incoming, title, period_label):
             "判定": st.column_config.TextColumn("状況"),
             "現在充足": st.column_config.ProgressColumn(f"現充足({period_label})", min_value=0, max_value=2, format="%.1f"),
             "予定込充足": st.column_config.ProgressColumn(f"将充足({period_label})", min_value=0, max_value=2, format="%.1f"),
-            "入荷予定合計": st.column_config.NumberColumn("入荷予定"),
             "商品ID": st.column_config.TextColumn("ID"),
         }
     )
@@ -176,10 +186,8 @@ def display_analysis_table(df_ship, master, inv, incoming, title, period_label):
 # --- 4. メイン表示 ---
 tab1, tab2 = st.tabs(["📊 出荷実績・在庫予測", "📦 在庫詳細"])
 with tab1:
-    display_analysis_table(df_m_ship, df_m, df_inv_final, df_incoming, "🗓️ 月次分析（欠品リスク検知版）", "ヶ月")
+    display_analysis_table(df_m_ship, df_m, df_inv_final, df_incoming, "🗓️ 月次分析（入荷統合・欠品検知版）", "ヶ月")
     st.markdown("---")
-    display_analysis_table(df_w_ship, df_m, df_inv_final, df_incoming, "🗓️ 週次分析（欠品リスク検知版）", "週")
+    display_analysis_table(df_w_ship, df_m, df_inv_final, df_incoming, "🗓️ 週次分析（入荷統合・欠品検知版）", "週")
 with tab2:
-    inv_all = pd.merge(df_m, df_inv_final, on='商品ID', how='inner')
-    inv_all = pd.merge(inv_all, df_incoming, on='商品ID', how='left').fillna(0)
-    st.dataframe(inv_all, use_container_width=True)
+    st.dataframe(pd.merge(df_m, df_inv_final, on='商品ID', how='inner'), use_container_width=True)
