@@ -1,130 +1,91 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 
-# --- ページ設定 ---
-st.set_page_config(page_title="在庫判定プロトタイプ", layout="wide")
+# 1. ページ構成
+st.set_page_config(page_title="在庫判定シミュレーター", layout="wide")
 
-st.title("📦 次世代 在庫調達意思決定ツール")
-st.markdown("スプレッドシートの限界を超え、経営指標（在庫回転・欠品防止）を最適化します。")
+# 2. Supabase接続 (secrets.tomlを参照)
+conn = st.connection("postgresql", type="sql")
 
-# --- サイドバー（操作パネル） ---
-st.sidebar.header("🎛 判定パラメータ")
-st.sidebar.write("製造部門長・経営層が調整する変数です。")
+# 3. サイドバー：経営・製造パラメータ
+st.sidebar.header("🎛 シミュレーション設定")
+coeff = st.sidebar.slider("需要予測係数", 0.5, 2.0, 1.0, 0.1, help="直近4週実績に対する倍率")
+target_mos = st.sidebar.slider("目標在庫月数", 0.5, 2.0, 1.0, 0.1, help="この月数を切ると『要発注』")
 
-# 1. 需要予測の係数（スライダー）
-# 1.0を基準に、繁忙期や施策に合わせて増減
-coeff = st.sidebar.slider(
-    "需要予測係数（月別係数）", 
-    min_value=0.5, 
-    max_value=2.0, 
-    value=1.0, 
-    step=0.1,
-    help="直近4週間の実績に対し、来月の予測を何倍にするか調整します。"
-)
+# 4. データ取得（SQLエイリアス問題を解消済み）
+@st.cache_data(ttl=300)
+def get_verified_data():
+    query = """
+    WITH weekly_stats AS (
+        SELECT 
+            "商品ID" as product_id,
+            "出荷数" as quantity,
+            DENSE_RANK() OVER (PARTITION BY "商品ID" ORDER BY "code" DESC) as rnk
+        FROM "shipment_weekly"
+    ),
+    four_weeks_avg AS (
+        SELECT 
+            product_id,
+            AVG(quantity) as avg_q
+        FROM weekly_stats
+        WHERE rnk BETWEEN 2 AND 5  /* 今週を除いた直近4週 */
+        GROUP BY product_id
+    )
+    SELECT 
+        m."商品ID" as product_id,
+        m."商品名" as product_name,
+        COALESCE(s."合計在庫", 0) as stock,    
+        COALESCE(p."pending_quantity", 0) as pending, -- T_4001の列名に合わせて修正してください
+        COALESCE(f.avg_q, 0) as avg_4w
+    FROM "product_master" m
+    LEFT JOIN four_weeks_avg f ON m."商品ID" = f.product_id
+    LEFT JOIN "010_在庫集計" s ON m."商品ID" = s."商品ID"
+    LEFT JOIN "T_4001" p ON m."商品ID" = p."商品ID"
+    """
+    return conn.query(query)
 
-# 2. 目標在庫月数（安全在庫の考え方）
-target_mos = st.sidebar.slider(
-    "目標在庫月数（最低保持）", 
-    min_value=0.5, 
-    max_value=2.0, 
-    value=1.0, 
-    step=0.1,
-    help="在庫が何ヶ月分を切ったら『要発注』と出すかの基準です。"
-)
+# --- メインロジック ---
+st.title("📦 次世代 在庫調達意思決定")
 
-st.sidebar.divider()
-st.sidebar.info(f"現在の設定:\n\n予測: 実績の {coeff} 倍\n発注基準: {target_mos} ヶ月分未満")
+try:
+    df_raw = get_verified_data()
+    df = df_raw.copy()
 
-# --- データ読み込み（モックアップ） ---
-# 本来はここで Supabase から T_9x07 等を読み込みます
-@st.cache_data
-def load_data():
-    # ユーザー様の例（100022など）を再現したダミーデータ
-    data = {
-        "商品ID": ["100022", "100125", "100200", "100350"],
-        "商品名": ["ココ＿フィッシュ100g", "ココグルメ＿ビーフ", "サンプル品A", "滞留品B"],
-        "現在庫": [61456, 3188, 12000, 45000],
-        "入荷予定": [0, 5000, 0, 0],
-        "週1": [18000, 1200, 3000, 200], # 直近(先週)
-        "週2": [17500, 1150, 2800, 250],
-        "週3": [18200, 1300, 3100, 220],
-        "週4": [17900, 1250, 2950, 210]  # 4週前
-    }
-    return pd.DataFrame(data)
-
-df = load_data()
-
-# --- ロジック計算部分 ---
-def process_logic(df, coeff, target):
-    # 1. 完了4週の平均を算出
-    df['直近4週平均'] = df[['週1', '週2', '週3', '週4']].mean(axis=1)
+    # 計算：X = 4週平均 * 4.4週 * 係数
+    df['予測月間出荷(X)'] = (df['avg_4w'] * 4.4 * coeff).astype(int)
     
-    # 2. 月間予測出荷数 X の算出 (4.4週換算 * 係数)
-    df['予測月間出荷(X)'] = (df['直近4週平均'] * 4.4 * coeff).astype(int)
-    
-    # 3. 在庫月数 (MOS) の算出
-    # (現在庫 + 入荷予定) / X
-    df['在庫月数(MOS)'] = (df['現在庫'] + df['入荷予定']) / df['予測月間出荷(X)']
-    
-    # 4. 判定ロジック
+    # 計算：在庫月数 (MOS)
+    df['在庫月数(MOS)'] = (df['stock'] + df['pending']) / df['予測月間出荷(X)'].replace(0, 1)
+
+    # 判定分岐
     def judge(row):
+        if row['予測月間出荷(X)'] == 0: return "実績なし"
         mos = row['在庫月数(MOS)']
-        arrival = row['入荷予定']
-        
-        if mos < 0.5:
-            return "🚨 間に合わない"
-        elif mos < target:
-            return "⏳ 入荷待ち" if arrival > 0 else "⚠️ 要発注"
-        elif mos > 3.0:
-            return "💰 在庫過多"
-        else:
-            return "✅ 適正"
-            
+        if mos < 0.5: return "🚨 間に合わない"
+        elif mos < target_mos:
+            return "⏳ 入荷待ち" if row['pending'] > 0 else "⚠️ 要発注"
+        elif mos > 3.0: return "💰 在庫過多"
+        else: return "✅ 適正"
+
     df['判定'] = df.apply(judge, axis=1)
-    return df
 
-# 計算実行
-res_df = process_logic(df, coeff, target_mos)
+    # 概要メトリクス
+    c1, c2, c3 = st.columns(3)
+    c1.metric("🚨 欠品リスク", len(df[df['判定'] == "🚨 間に合わない"]))
+    c2.metric("⚠️ 要発注", len(df[df['判定'] == "⚠️ 要発注"]))
+    c3.metric("💰 在庫過多", len(df[df['判定'] == "💰 在庫過多"]))
 
-# --- メイン表示エリア ---
+    # フィルター
+    status_filter = st.multiselect("表示する判定", df['判定'].unique(), default=df['判定'].unique())
+    
+    # テーブル表示
+    st.dataframe(
+        df[df['判定'].isin(status_filter)][['product_id', 'product_name', 'stock', 'pending', '予測月間出荷(X)', '在庫月数(MOS)', '判定']]
+        .style.background_gradient(subset=['在庫月数(MOS)'], cmap='RdYlGn', vmin=0, vmax=3),
+        use_container_width=True
+    )
 
-# 100022のピックアップ表示（デモ用）
-st.subheader("🔍 重要商品ピックアップ (100022)")
-target_row = res_df[res_df['商品ID'] == "100022"].iloc[0]
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("判定", target_row['判定'])
-col2.metric("在庫月数", f"{target_row['在庫月数(MOS)']:.2f} ヶ月")
-col3.metric("現在庫", f"{target_row['現在庫']:,}")
-col4.metric("月間予測(X)", f"{target_row['予測月間出荷(X)']:,}")
-
-st.divider()
-
-# 一覧表の表示
-st.subheader("📋 商品別 在庫判定一覧")
-
-# 見栄えを良くするためのスタイリング
-def color_judge(val):
-    if '🚨' in val: color = '#ff4b4b'
-    elif '⚠️' in val: color = '#ffa500'
-    elif '💰' in val: color = '#1f77b4'
-    elif '⏳' in val: color = '#777777'
-    else: color = '#28a745'
-    return f'color: {color}; font-weight: bold'
-
-st.dataframe(
-    res_df.style.applymap(color_judge, subset=['判定']),
-    use_container_width=True,
-    column_config={
-        "直近4週平均": st.column_config.NumberColumn(format="%d"),
-        "予測月間出荷(X)": st.column_config.NumberColumn(format="%d"),
-        "在庫月数(MOS)": st.column_config.NumberColumn(format="%.2f ヶ月"),
-    }
-)
-
-# --- 経営への一言アドバイス ---
-st.info(f"""
-**💡 現場への指示出しポイント:**
-- 現在の需要予測係数 **{coeff}** において、在庫月数が **{target_mos}ヶ月** を切る商品は「発注検討」が必要です。
-- 100022は現在在庫月数が **{target_row['在庫月数(MOS)']:.2f}ヶ月** です。係数を上げると、より早くアラートが出ます。
-""")
+except Exception as e:
+    st.error("データの取得中にエラーが発生しました。")
+    st.code(str(e))
+    st.info("💡 ヒント: テーブル名や列名がSupabaseと一致しているか、ダブルクォーテーションで囲まれているか確認してください。")
